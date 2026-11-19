@@ -15,7 +15,7 @@ const mkBuf = (data, usage) => { const b = dev.createBuffer({ size: (data.byteLe
 const worldVB = mkBuf(worldV, BU.VERTEX), worldIB = mkBuf(worldI, BU.INDEX), unitVB = mkBuf(unitV, BU.VERTEX), unitIB = mkBuf(unitI, BU.INDEX);
 vbuf = vf = vu = ibuf = null;
 const U = new Float32Array(416), ubuf = dev.createBuffer({ size: U.byteLength, usage: BU.UNIFORM | BU.COPY_DST });
-const instBuf = dev.createBuffer({ size: instA.byteLength, usage: BU.STORAGE | BU.COPY_DST }), sprBuf = dev.createBuffer({ size: sprA.byteLength, usage: BU.STORAGE | BU.COPY_DST });
+const instBuf = dev.createBuffer({ size: instA.byteLength, usage: BU.STORAGE | BU.COPY_DST }), sprBuf = dev.createBuffer({ size: sprA.byteLength, usage: BU.STORAGE | BU.COPY_DST }), decBuf = dev.createBuffer({ size: dcl.byteLength, usage: BU.STORAGE | BU.COPY_DST });
 const lightBuf = mkBuf(lightD.subarray(0, max(nL, 1) * 8), BU.STORAGE), cellBuf = mkBuf(cellL, BU.STORAGE);
 // wall distance field as r16float
 const sdfTex = dev.createTexture({ size: [SW, SH], format: 'r16float', usage: TU.TEXTURE_BINDING | TU.COPY_DST });
@@ -31,7 +31,9 @@ const smG = mod(WG_GBUF), smL = mod(WG_LIGHT), smS = mod(WG_SPR), smT = mod(WG_T
 const vlay = [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'unorm8x4' }, { shaderLocation: 3, offset: 28, format: 'uint8x4' }] }];
 const prim3 = { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' };
 const fsq = (m, entry, format, blend) => dev.createRenderPipelineAsync({ layout: 'auto', vertex: { module: m, entryPoint: 'vs' }, fragment: { module: m, entryPoint: entry, targets: [blend ? { format, blend: { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } } } : { format }] } });
-const [pZ, pG, pL, pS, pT, pD0, pD, pUp, pF] = await Promise.all([
+const smD = mod(WG_DEC);
+const [pDc, pZ, pG, pL, pS, pT, pD0, pD, pUp, pF] = await Promise.all([
+  dev.createRenderPipelineAsync({ layout: 'auto', vertex: { module: smD, entryPoint: 'vs' }, fragment: { module: smD, entryPoint: 'fs', targets: [{ format: 'rgba8unorm', blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha' } } }, { format: HDR, blend: { color: { srcFactor: 'zero', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } }, { format: HDR, blend: { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'zero', dstFactor: 'one' } } }, { format: 'rg16float', writeMask: 0 }] }, primitive: { topology: 'triangle-list', cullMode: 'none', frontFace: 'ccw' }, depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'always' } }),
   dev.createRenderPipelineAsync({ layout: 'auto', vertex: { module: smG, entryPoint: 'vsz', buffers: vlay }, primitive: prim3, depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' } }),
   dev.createRenderPipelineAsync({ layout: 'auto', vertex: { module: smG, entryPoint: 'vs', buffers: vlay }, fragment: { module: smG, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }, { format: HDR }, { format: HDR }, { format: 'rg16float' }] }, primitive: prim3, depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'equal' } }),
   fsq(smL, 'fs', HDR),
@@ -39,11 +41,11 @@ const [pZ, pG, pL, pS, pT, pD0, pD, pUp, pF] = await Promise.all([
   fsq(smT, 'fs', HDR), fsq(smB, 'fd0', HDR), fsq(smB, 'fd', HDR), fsq(smB, 'fu', HDR, 1), fsq(smF, 'fs', fmt)]);
 const bg = (p, i, entries) => dev.createBindGroup({ layout: p.getBindGroupLayout(i), entries: entries.map((r, binding) => ({ binding, resource: r })) });
 const ub = { buffer: ubuf };
-const bgZ = bg(pZ, 0, [ub, { buffer: instBuf }]), bgG = bg(pG, 0, [ub, { buffer: instBuf }]), bgL0 = bg(pL, 0, [ub]), bgS = bg(pS, 0, [ub, { buffer: sprBuf }]), bgT0 = bg(pT, 0, [ub]), bgF0 = bg(pF, 0, [ub]);
+const bgZ = bg(pZ, 0, [ub, { buffer: instBuf }]), bgG = bg(pG, 0, [ub, { buffer: instBuf }]), bgL0 = bg(pL, 0, [ub]), bgS = bg(pS, 0, [ub, { buffer: sprBuf }]), bgT0 = bg(pT, 0, [ub]), bgDc = bg(pDc, 0, [ub, { buffer: decBuf }]), bgF0 = bg(pF, 0, [ub]);
 
 // render targets (rebuilt on resize only)
 const NB = 6;
-let W = 0, H = 0, tex = [], bgL = [null, null], bgT = [null, null], bgF = [null, null], bgD = [], bgU = [], bgD0 = [null, null];
+let bgDc1 = null, W = 0, H = 0, tex = [], bgL = [null, null], bgT = [null, null], bgF = [null, null], bgD = [], bgU = [], bgD0 = [null, null];
 const cl = (view, load) => ({ view, loadOp: load ? 'load' : 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] });
 const rpZ = { colorAttachments: [], depthStencilAttachment: null }, rpG = { colorAttachments: null, depthStencilAttachment: null }, rpL = { colorAttachments: null }, rpS = { colorAttachments: null, depthStencilAttachment: null },
   rpT = [{ colorAttachments: null }, { colorAttachments: null }], rpD = [], rpU = [], rpF = { colorAttachments: [cl(null)] };
@@ -65,7 +67,7 @@ function resize() {
   for (let i = 0; i < NB; i++) vB.push(mk(HDR, max(1, W >> (i + 1)), max(1, H >> (i + 1))));
   rpZ.depthStencilAttachment = { view: vD, depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'store' };
   rpG.colorAttachments = [cl(vA), cl(vN), cl(vE), cl(vV)]; rpG.depthStencilAttachment = { view: vD, depthReadOnly: true };
-  rpL.colorAttachments = [cl(vLit)];
+  rpL.colorAttachments = [cl(vLit)]; bgDc1 = bg(pDc, 1, [vD]);
   rpS.colorAttachments = [cl(vLit, 1)]; rpS.depthStencilAttachment = { view: vD, depthReadOnly: true };
   for (let k = 0; k < 2; k++) {
     rpT[k].colorAttachments = [cl(vH[k])];
@@ -125,11 +127,11 @@ function uniforms(dt) {
 }
 
 // ---------- frame ----------
-const submitArr = [null], NI = WB + 64, MUL = qn('mul', 1);
+const submitArr = [null], NI = MAXINST, MUL = qn('mul', 1);
 let hi = 0, benchI = 0, warm = 0, benchDone = 0, lastNow = 0;
 const ftLog = new Float32Array(QMAX);
 function render() {
-  dev.queue.writeBuffer(ubuf, 0, U); dev.queue.writeBuffer(instBuf, 0, instA);
+  dev.queue.writeBuffer(ubuf, 0, U); dev.queue.writeBuffer(instBuf, 0, instA); dev.queue.writeBuffer(decBuf, 0, dcl);
   if (nS) dev.queue.writeBuffer(sprBuf, 0, sprA, 0, nS * 12);
   const enc = dev.createCommandEncoder();
   let p = enc.beginRenderPass(rpZ);
@@ -141,6 +143,7 @@ function render() {
   p.setPipeline(pG); p.setBindGroup(0, bgG);
   p.setVertexBuffer(0, worldVB); p.setIndexBuffer(worldIB, 'uint32'); p.drawIndexed(worldNI, 1, 0, 0, 0);
   p.setVertexBuffer(0, unitVB); p.setIndexBuffer(unitIB, 'uint32'); p.drawIndexed(unitNI, NI - 1, 0, 0, 1);
+  p.setPipeline(pDc); p.setBindGroup(0, bgDc); p.setBindGroup(1, bgDc1); p.draw(6, NDC);
   p.end();
   p = enc.beginRenderPass(rpL); p.setPipeline(pL); p.setBindGroup(0, bgL0); p.setBindGroup(1, bgL[hi]); p.draw(3); p.end();
   if (nS || qs) { p = enc.beginRenderPass(rpS); p.setPipeline(pS); p.setBindGroup(0, bgS); if (nS) p.draw(6, nS); p.end(); }
@@ -211,7 +214,7 @@ if (!AUTO) {
       case 'KeyW': kW = v; break; case 'KeyS': kS = v; break; case 'KeyA': kA = v; break; case 'KeyD': kD = v; break;
       case 'ShiftLeft': case 'ShiftRight': kShift = v; break;
       case 'KeyR': if (v) wantReload = 1; break;
-      case 'KeyM': if (v && !e.repeat) { musOn ^= 1; if (AW) sP[14].value = musOn; } break;
+      case 'KeyM': if (v && !e.repeat) { musOn ^= 1; if (AW) sP[15].value = musOn; } break;
       case 'Digit1': if (v && weapon !== 0) { weapon = 0; switchT = .3; reloadT = 0; snd(12); } break;
       case 'Digit2': if (v && weapon !== 1) { weapon = 1; switchT = .3; reloadT = 0; snd(12); } break;
       case 'KeyQ': if (v) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } break;
@@ -236,8 +239,8 @@ if (!AUTO) {
 } else ov.style.display = 'none';
 resize();
 if (CAP) window.__in = (o) => {
-  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
-  return { px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
+  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('ebar' in o) for (let i = 0; i < 6; i++) { eX[i] = barrels[o.ebar * 2] + 1.2 + i * .9; eZ[i] = barrels[o.ebar * 2 + 1] + 2; } if ('bar' in o) { const bx = barrels[o.bar * 2], bz = barrels[o.bar * 2 + 1]; for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = bx + sin(a) * o.d, z = bz + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, bx, bz)) { px = x; pz = z; yaw = -a; pitch = Math.atan2(.62 - EYE, o.d); break; } } } if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
+  return { eh: Array.from(eHp.subarray(0, 6)).map(Math.round), et: Array.from(eType.subarray(0, 6)), nBar, bSt: Array.from(bSt.subarray(0, nBar)), px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
 };
 if (CAP) { window.__frame = (n = 1) => { for (let i = 0; i < n; i++) step(FIXDT || 1 / 60); return frameNo; }; window.__ready = 1; }
 else requestAnimationFrame((t) => { lastNow = t; requestAnimationFrame(frame); });

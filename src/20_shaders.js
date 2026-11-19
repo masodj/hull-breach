@@ -591,3 +591,50 @@ fn plate(p:vec2f,b:vec2f)->vec2f{let d=sdb(p,b-9.)-9.;return vec2f(clamp(.5-d,0.
   return vec4f(col+(n+n2-1.)/255.,1.);
 }
 `;
+
+// ----- bullet marks and blast scorch: decal boxes projected onto whatever the G-buffer holds, drawn inside the G-buffer pass.
+// They darken albedo, drop metalness and raise roughness (otherwise reflections hide them on glossy floors) and add residual heat -----
+const WG_DEC = WG_COMMON + /*wgsl*/`
+struct Dc{p:vec4f,n:vec4f};
+@group(0)@binding(1)var<storage,read>dc:array<Dc>;
+@group(1)@binding(0)var tD:texture_depth_2d;
+struct DV{@builtin(position)cp:vec4f,@location(0)@interpolate(flat)ii:u32};
+struct DF{@location(0)alb:vec4f,@location(1)nr:vec4f,@location(2)em:vec4f,@location(3)vel:vec4f};
+fn basis(n:vec3f)->vec3f{return normalize(cross(n,select(vec3f(0.,1.,0.),vec3f(1.,0.,0.),abs(n.y)>.9)));}
+@vertex fn vs(@builtin(vertex_index)vi:u32,@builtin(instance_index)ii:u32)->DV{
+  // one screen-aligned quad bounding the projected decal box: every pixel is covered exactly once, no reliance on face culling
+  let d=dc[ii];let n=d.n.xyz;let T=basis(n);let B=cross(n,T);
+  var lo=vec2f(1e9);var hi=vec2f(-1e9);var nb=0u;
+  for(var j=0u;j<8u;j++){
+    let c=vec3f(f32(j&1u),f32((j>>1u)&1u),f32(j>>2u))*2.-1.;
+    let q=g.vp*vec4f(d.p.xyz+(T*c.x+B*c.y)*d.p.w*1.15+n*(.1+c.z*.2),1.);
+    if(q.w<.05){nb++;}else{let s=q.xy/q.w;lo=min(lo,s);hi=max(hi,s);}
+  }
+  if(nb>0u){lo=vec2f(-1.);hi=vec2f(1.);}
+  let k=array<u32,6>(0u,1u,2u,2u,1u,3u)[vi];
+  var o:DV;o.ii=ii;
+  o.cp=vec4f(mix(lo,hi,vec2f(f32(k&1u),f32(k>>1u))),.5,1.);
+  if(d.p.w<=0.||nb==8u){o.cp=vec4f(0.,0.,-1.,1.);}
+  return o;
+}
+@fragment fn fs(i:DV)->DF{
+  let px=vec2i(i.cp.xy);let z=textureLoad(tD,px,0);if(z<=0.){discard;}
+  let nd=vec2f((i.cp.x)*g.res.z*2.-1.,1.-(i.cp.y)*g.res.w*2.)-g.jit.xy;
+  let P=g.cam.xyz+(g.fwd.xyz+g.right.xyz*nd.x+g.up.xyz*nd.y)*(g.prj.z/z);
+  let d=dc[i.ii];let n=d.n.xyz;let T=basis(n);let B=cross(n,T);
+  let q=P-d.p.xyz;let h=dot(q,n);let uv=vec2f(dot(q,T),dot(q,B));
+  let sn=normalize(cross(dpdx(P),dpdy(P)));
+  let an=atan2(uv.y,uv.x);let sd=f32(i.ii);
+  let r=length(uv)/d.p.w*(1.+.1*sin(an*5.+sd*1.7)+.06*sin(an*9.+sd*4.3));
+  let m=step(-.1,h)*step(h,.3)*smoothstep(.25,.6,abs(dot(sn,n)));
+  let sm=step(d.p.w,.5);let hole=(1.-smoothstep(.28,.36,r))*sm;let chip=smoothstep(.3,.36,r)*(1.-smoothstep(.44,.56,r))*(.55+.45*sin(an*7.+sd*2.1))*sm;
+  let soot=(1.-smoothstep(mix(.6,.35,sm),1.,r))*mix(.96,.8,sm);
+  let al=max(max(hole,chip*.85),soot)*m;if(al<.004){discard;}
+  let heat=max(0.,1.-(g.cam.w-d.n.w)*1.6);
+  var o:DF;
+  o.alb=vec4f(mix(mix(vec3f(.012),vec3f(.5,.52,.55),chip),vec3f(.002),hole),al);
+  o.em=vec4f(vec3f(1.,.3,.03)*heat*heat*(hole*5.+(1.-smoothstep(.3,.8,r))*.8)*m,0.);
+  o.nr=vec4f(0.,0.,0.,al*(1.-chip)*.92);o.vel=vec4f(0.);
+  return o;
+}
+`;

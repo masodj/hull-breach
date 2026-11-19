@@ -60,6 +60,7 @@ const MAXL = 640, lightD = new Float32Array(MAXL * 8); let nL = 0;
 const addLight = (x, y, z, r, g, b, I, rad, src = .3) => { const o = nL++ * 8; lightD[o] = x; lightD[o + 1] = y; lightD[o + 2] = z; lightD[o + 3] = rad; lightD[o + 4] = r * I; lightD[o + 5] = g * I; lightD[o + 6] = b * I; lightD[o + 7] = src; };
 
 // ---------- the ship ----------
+const barrels = []; // explosive barrels: x, z pairs (drawn and simulated by the game)
 const spawns = []; // [type char, x, z]
 {
   let ox = 0, oz = 0, tx = 0, tz = 0, inx = 0, inz = 0;
@@ -200,6 +201,7 @@ const spawns = []; // [type char, x, z]
     } else if (e === 'B') {
       for (let q = 0; q < 3; q++) {
         const a = q * 2.1 + hh * 6, bx = cx + cos(a) * .55, bz = cz + sin(a) * .55, c = q === 0 ? [.55, .4, .06] : q === 1 ? [.2, .22, .25] : [.1, .3, .34], hgt = q === 2 ? .5 : .62;
+        if (!q) { barrels.push(bx, bz); continue; }
         setM(7, c[0], c[1], c[2]); cyl(1, bx, hgt, bz, .42, hgt, 18, 1);
         setM(4, .1, .11, .13); cyl(1, bx, hgt * .66, bz, .44, .03, 18); cyl(1, bx, hgt * 1.33, bz, .44, .03, 18); cyl(1, bx, hgt * 2 - .02, bz, .44, .03, 18, 1); cyl(1, bx + .2, hgt * 2 + .02, bz, .06, .03, 8, 1);
       }

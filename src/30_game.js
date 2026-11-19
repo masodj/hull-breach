@@ -1,6 +1,10 @@
 // ---------- game state (all preallocated) ----------
 const EYE = 1.7, NEMAX = 48, PARTS = 48, NPK = 32, NPJ = 24, IS = 36;
-const EB = 1, PB = EB + NEMAX * PARTS, JB = PB + NPK * 2, WB = JB + NPJ, MAXINST = WB + 64;
+const EB = 1, PB = EB + NEMAX * PARTS, JB = PB + NPK * 2, WB = JB + NPJ, NBAR = 16, BB = WB + 64, MAXINST = BB + NBAR * 8, NDC = 256;
+// explosive barrels: 0 intact, 1 fuse lit (chain reaction), 2 wreck
+const nBar = min(NBAR, barrels.length >> 1), bSt = new Uint8Array(NBAR), bT = new Float32Array(NBAR);
+// bullet marks: ring buffer of (x y z radius) (nx ny nz birth time), drawn as projected decals
+const dcl = new Float32Array(NDC * 8); let dcI = 0;
 const instA = new Float32Array(MAXINST * IS), instP = new Float32Array(MAXINST * IS), stamp = new Int32Array(MAXINST).fill(-9);
 instA[0] = instA[5] = instA[10] = 1; instA[15] = 1; instA[16] = instA[21] = instA[26] = 1; instA[32] = instA[33] = instA[34] = 1;
 let frameNo = 0, T = 0, state = AUTO ? 1 : 0; // 0 menu 1 play 2 dead 3 win
@@ -21,7 +25,7 @@ const kX = new Float32Array(NPK), kZ = new Float32Array(NPK), kType = new Uint8A
 const jX = new Float32Array(NPJ), jY = new Float32Array(NPJ), jZ = new Float32Array(NPJ), jVx = new Float32Array(NPJ), jVy = new Float32Array(NPJ), jVz = new Float32Array(NPJ), jL = new Float32Array(NPJ);
 const NPT = 640, pt = new Float32Array(NPT * 12); let ptI = 0; // x y z vx vy vz life maxlife size r g b
 const NBM = 48, bm = new Float32Array(NBM * 12); let bmI = 0;   // x0 y0 z0 x1 y1 z1 life w r g b _
-const MAXS = NPT + NBM + NPJ + 8, sprA = new Float32Array(MAXS * 12); let nS = 0;
+const MAXS = NPT + NBM + NPJ + 8 + NBAR, sprA = new Float32Array(MAXS * 12); let nS = 0;
 const dynL = new Float32Array(64), blobA = new Float32Array(64); let nDyn = 0, nBlob = 0;
 let impX = 0, impY = 0, impZ = 0, impT = 0, flashL = 0;
 
@@ -59,7 +63,7 @@ function beam(x0, y0, z0, x1, y1, z1, life, w, r, g, b) {
 // Triggers are AudioParam counters, so the game thread allocates nothing per sound.
 // AWK is stringified into the worklet: it must not reference anything outside itself.
 function AWK() {
-  const M = Math, sr = sampleRate, PI = M.PI, NT = 13, NV = 32;
+  const M = Math, sr = sampleRate, PI = M.PI, NT = 14, NV = 32;
   let sd = 4242;
   const rn = () => { sd = (M.imul(sd, 1664525) + 1013904223) >>> 0; return sd / 2147483648 - 1; };
   const buf = (d) => new Float32Array((d * sr) | 0);
@@ -117,6 +121,10 @@ function AWK() {
   a = S[10] = buf(.2); tn(a, 0, .15, .55, .035, 115, 55, .03); nz(a, 0, .12, .45, .03, 700, 180, 1, 0); nz(a, 0, .05, .1, .008, 2600, 2600, 3, 1); tn(a, 0, .15, .05, .04, 730, 730, 1);
   a = S[11] = buf(.4); nz(a, 0, .35, .7, .09, 500, 2600, 6, 1); nz(a, 0, .2, .3, .05, 3000, 800, 1, 0); tn(a, 0, .3, .3, .08, 600, 160, .08);
   a = S[12] = buf(.3); nz(a, 0, .12, .1, .05, 900, 2200, 2, 1); clk(a, .1, .4, .8);
+  // 18 barrel explosion: crack, long low boom, rumble
+  a = S[18] = buf(2.2);
+  nz(a, 0, .05, 1.3, .006, 2500, 2000, .8, 2); nz(a, 0, 1.2, 1.5, .16, 5000, 150, .8, 0); nz(a, 0, 2, 1.3, .45, 500, 50, 1, 0); tn(a, 0, 1.6, 1.5, .4, 95, 28, .12);
+  sat(a, 2.8); nz(a, .05, 2.1, .16, .7, 900, 120, .7, 0);
   // drum kit + bell for the music
   a = S[13] = buf(.45); tn(a, 0, .44, 1.3, .2, 230, 47, .032); nz(a, 0, .02, .5, .002, 4000, 3000, 1, 2); sat(a, 1.7);
   a = S[14] = buf(.4); tn(a, 0, .3, .9, .08, 270, 186, .02); nz(a, 0, .38, 1, .1, 2100, 1700, .7, 1); nz(a, 0, .38, .55, .13, 6000, 5000, .8, 2); sat(a, 1.5);
@@ -124,7 +132,7 @@ function AWK() {
   a = S[16] = buf(.4); nz(a, 0, .4, .6, .11, 7500, 6500, 1.5, 2);
   a = S[17] = buf(1.4); { let p = 0; for (let i = 0; i < a.length; i++) { const t = i / sr; p += 2 * PI * 1046.5 / sr; a[i] = M.sin(p + 1.5 * M.exp(-t / .1) * M.sin(p * 2.76)) * .3 * M.exp(-t / .35) * M.min(1, t / .002); } }
   // per-trigger mix: gain, reverb send, pitch spread
-  const TG = [.95, .62, .8, .8, .6, .5, .55, .7, .5, .7, .4, .45, .6], TS = [.22, .16, .12, .12, .1, .1, .4, .1, .2, .15, .12, .4, .1], TR = [.03, .07, 0, 0, .05, .2, .2, .1, 0, .04, .15, .2, .05];
+  const TG = [.95, .62, .8, .8, .6, .5, .55, .7, .5, .7, .4, .45, .6, 1.15], TS = [.22, .16, .12, .12, .1, .1, .4, .1, .2, .15, .12, .4, .1, .45], TR = [.03, .07, 0, 0, .05, .2, .2, .1, 0, .04, .15, .2, .05, .08];
   const PN = []; for (let i = 0; i < NT; i++) PN.push('t' + i);
   const PD = PN.map(name => ({ name, defaultValue: 0, automationRate: 'k-rate' }));
   PD.push({ name: 'spin', defaultValue: 0, automationRate: 'k-rate' }, { name: 'mus', defaultValue: 1, automationRate: 'k-rate' });
@@ -171,7 +179,7 @@ function AWK() {
     static get parameterDescriptors() { return PD; }
     process(_, out, par) {
       const L = out[0][0], R = out[0][1] || L, n = L.length, spin = par.spin[0], mus = par.mus[0];
-      for (let i = 0; i < NT; i++) { const v = par[PN[i]][0]; if (v !== last[i]) { last[i] = v; play(i, TG[i] * (1 + rn() * .08), 1 + rn() * TR[i], i === 10 ? rn() * .3 : 0, TS[i]); } }
+      for (let i = 0; i < NT; i++) { const v = par[PN[i]][0]; if (v !== last[i]) { last[i] = v; play(i > 12 ? 18 : i, TG[i] * (1 + rn() * .08), 1 + rn() * TR[i], i === 10 ? rn() * .3 : 0, TS[i]); } }
       for (let i = 0; i < n; i++) {
         let l = 0, r = 0, s = 0;
         // ---- music ----
@@ -192,7 +200,7 @@ function AWK() {
         for (let v = 0; v < NV; v++) {
           const b = vB[v]; if (b < 0) continue;
           const A = S[b], q = vP[v], qi = q | 0; if (qi >= A.length - 1) { vB[v] = -1; continue; }
-          const y = (A[qi] + (A[qi + 1] - A[qi]) * (q - qi)) * (b > 12 ? mvol : 1); vP[v] = q + vR[v];
+          const y = (A[qi] + (A[qi + 1] - A[qi]) * (q - qi)) * (b > 12 && b < 18 ? mvol : 1); vP[v] = q + vR[v];
           l += y * vL[v]; r += y * vRt[v]; s += y * vS[v];
         }
         // ---- minigun motor ----
@@ -216,13 +224,13 @@ function initAudio() {
     AC = new AudioContext({ latencyHint: 'interactive' });
     AC.audioWorklet.addModule('data:text/javascript,' + encodeURIComponent(`(${AWK})()`)).then(() => {
       const w = new AudioWorkletNode(AC, 'a', { numberOfInputs: 0, outputChannelCount: [2] });
-      for (let i = 0; i < 13; i++) sP[i] = w.parameters.get('t' + i);
-      sP[13] = w.parameters.get('spin'); sP[14] = w.parameters.get('mus'); sP[14].value = musOn;
+      for (let i = 0; i < 14; i++) sP[i] = w.parameters.get('t' + i);
+      sP[14] = w.parameters.get('spin'); sP[15] = w.parameters.get('mus'); sP[15].value = musOn;
       w.connect(AC.destination); AW = w;
     }, (e) => console.warn('audio', e));
   } catch (e) { AC = null; }
 }
-// 0 shotgun 1 minigun 2 reload shotgun 3 reload minigun 4 dry 5 hit 6 kill 7 hurt 8 health 9 ammo 10 step 11 spit 12 swap
+// 0 shotgun 1 minigun 2 reload shotgun 3 reload minigun 4 dry 5 hit 6 kill 7 hurt 8 health 9 ammo 10 step 11 spit 12 swap 13 explosion
 function snd(i) { if (AW) sP[i].value = ++sN[i]; }
 
 // ---------- ray casting ----------
@@ -259,6 +267,16 @@ function hurt(i, d) {
     if (alive === 0 && !AUTO) setState(3);
   }
 }
+function explode(k) {
+  if (bSt[k] > 1) return; bSt[k] = 2; bT[k] = 0;
+  const x = barrels[k * 2], z = barrels[k * 2 + 1];
+  snd(13); burst(x, .8, z, 70, 17, 1.1, .09, 1, .55, .15); burst(x, .6, z, 30, 7, 1.7, .13, .3, .25, .2); kick = 1;
+  for (let i = 0; i < nE; i++) if (eState[i] < 2) { const d = hypot(eX[i] - x, eZ[i] - z); if (d < 7 && los(x, z, eX[i], eZ[i])) hurt(i, 320 * (1 - d / 7) + 20); }
+  for (let j = 0; j < nBar; j++) if (!bSt[j] && hypot(barrels[j * 2] - x, barrels[j * 2 + 1] - z) < 5.5) { bSt[j] = 1; bT[j] = .12 + rnd() * .18; }
+  const pd = hypot(px - x, pz - z); if (pd < 7 && los(x, z, px, pz)) damage(95 * (1 - pd / 7));
+  { const o = dcI * 8; dcI = (dcI + 1) % NDC; dcl[o] = x; dcl[o + 1] = 0; dcl[o + 2] = z; dcl[o + 3] = 1.7 + rnd() * .5; dcl[o + 4] = 0; dcl[o + 5] = 1; dcl[o + 6] = 0; dcl[o + 7] = T; }
+  alert(34);
+}
 function fireRay(spread, dmg, mx, my, mz) {
   const sx = (rnd() + rnd() - 1) * spread, sy = (rnd() + rnd() - 1) * spread;
   let dx = cF[0] + cR[0] * sx + cU[0] * sy, dy = cF[1] + cR[1] * sx + cU[1] * sy, dz = cF[2] + cR[2] * sx + cU[2] * sy; const l = hypot(dx, dy, dz); dx /= l; dy /= l; dz /= l;
@@ -269,11 +287,15 @@ function fireRay(spread, dmg, mx, my, mz) {
     if (ty === 2) { const t3 = raySph(cP[0], cP[1], cP[2], dx, dy, dz, eX[i], 2.05, eZ[i], .7); if (t3 > 0 && (t2 < 0 || t3 < t2)) t2 = t3; }
     if (t2 > 0 && t2 < t) { t = t2; he = i; }
   }
+  let hb = -1;
+  for (let k = 0; k < nBar; k++) if (!bSt[k]) { const t2 = raySph(cP[0], cP[1], cP[2], dx, dy, dz, barrels[k * 2], .62, barrels[k * 2 + 1], .6); if (t2 > 0 && t2 < t) { t = t2; hb = k; he = -1; } }
   const hx = cP[0] + dx * t, hy = cP[1] + dy * t, hz = cP[2] + dz * t;
   beam(mx, my, mz, hx, hy, hz, .05, .009, 1, .8, .45);
-  if (he >= 0) { hurt(he, dmg); const ty = eType[he]; burst(hx, hy, hz, 3, 3, .35, .045, ty === 1 ? .3 : .5, 1, ty === 1 ? 1 : .2); }
+  if (hb >= 0) explode(hb);
+  else if (he >= 0) { hurt(he, dmg); const ty = eType[he]; burst(hx, hy, hz, 3, 3, .35, .045, ty === 1 ? .3 : .5, 1, ty === 1 ? 1 : .2); }
   else {
     for (let k = 0; k < 4; k++) spark(hx, hy, hz, hitNx * 2 + (rnd() - .5) * 5, hitNy * 2 + rnd() * 3, hitNz * 2 + (rnd() - .5) * 5, .25 + rnd() * .3, .022, 1, .7, .3);
+    { const o = dcI * 8, d = hitNy ? 0 : sdfAt(sdS, hx, hz); dcI = (dcI + 1) % NDC; dcl[o] = hx - hitNx * d; dcl[o + 1] = hy; dcl[o + 2] = hz - hitNz * d; dcl[o + 3] = .075 + rnd() * .04; dcl[o + 4] = hitNx; dcl[o + 5] = hitNy; dcl[o + 6] = hitNz; dcl[o + 7] = T; }
     impX = hx + hitNx * .15; impY = hy + hitNy * .15; impZ = hz + hitNz * .15; impT = .07;
   }
 }
@@ -366,6 +388,7 @@ function simEnemies(dt) {
   }
 }
 function simStuff(dt) {
+  for (let k = 0; k < nBar; k++) { if (bSt[k] === 1) { bT[k] -= dt; if (bT[k] <= 0) explode(k); } else if (bSt[k] === 2) bT[k] += dt; }
   for (let k = 0; k < NPJ; k++) if (jL[k] > 0) {
     jL[k] -= dt; jX[k] += jVx[k] * dt; jY[k] += jVy[k] * dt; jZ[k] += jVz[k] * dt;
     const hitP = hypot(jX[k] - px, jY[k] - (EYE - .4), jZ[k] - pz) < .7;
@@ -567,6 +590,15 @@ function buildInstances() {
     sty(6, 5, kType[k] ? 1 : .1, kType[k] ? .5 : 1, kType[k] ? .06 : .4); eSet(kX[k], .06, kZ[k], 0, 1); prim(3, 0, 0, 0, .5, .012, .5);
   }
   for (let k = 0; k < NPJ; k++) if (jL[k] > 0) { ic = JB + k; eSet(jX[k], jY[k], jZ[k], 0, 1); sty(6, 14, .3, .95, 1); prim(2, 0, 0, 0, .13, .13, .13); }
+  for (let k = 0; k < nBar; k++) {
+    ic = BB + k * 8; eSet(barrels[k * 2], 0, barrels[k * 2 + 1], k * 1.3, 1); gR = gG = gB = 0; sFl = 0;
+    if (bSt[k] === 2) { eRotZ(.13); sty(7, 1, .03, .026, .024); prim(3, 0, .22, 0, .48, .24, .45); sty(4, 1, .03, .03, .03); prim(3, 0, .45, 0, .5, .03, .47); }
+    else {
+      sty(7, 1, .62, .07, .04); prim(3, 0, .62, 0, .42, .62, .42);
+      sty(4, 1, .1, .11, .13); prim(3, 0, .41, 0, .44, .03, .44); prim(3, 0, .83, 0, .44, .03, .44); prim(3, 0, 1.22, 0, .44, .03, .44); prim(3, .2, 1.26, 0, .06, .03, .06);
+      sty(6, bSt[k] ? 30 : 3 + sin(T * 5 + k), 1, .4, .05); prim(3, 0, .62, 0, .426, .045, .426);
+    }
+  }
   drawWeapon();
 }
 function buildSprites() {
@@ -584,6 +616,7 @@ function buildSprites() {
     const mx = cP[0] + cR[0] * .056 - cU[0] * .064 + cF[0] * .37, my = cP[1] + cR[1] * .056 - cU[1] * .064 + cF[1] * .37, mz = cP[2] + cR[2] * .056 - cU[2] * .064 + cF[2] * .37;
     for (let k = 0; k < 2; k++) { const q = nS++ * 12; a[q] = a[q + 4] = mx; a[q + 1] = a[q + 5] = my; a[q + 2] = a[q + 6] = mz; a[q + 3] = k ? .008 : .022; a[q + 7] = 0; a[q + 8] = 1; a[q + 9] = k ? .9 : .55; a[q + 10] = k ? .7 : .2; a[q + 11] = k ? 10 : 2.5; }
   }
+  for (let k = 0; k < nBar; k++) if (bSt[k] === 2 && bT[k] < .7) { const f = bT[k] / .7, q = nS++ * 12; a[q] = a[q + 4] = barrels[k * 2]; a[q + 1] = a[q + 5] = 1 + f * 1.2; a[q + 2] = a[q + 6] = barrels[k * 2 + 1]; a[q + 3] = 1.2 + f * 3.5; a[q + 7] = 0; a[q + 8] = 1; a[q + 9] = .5 - .3 * f; a[q + 10] = .12; a[q + 11] = 14 * (1 - f) * (1 - f); }
   // soft contact shadows under the nearest enemies
   nBlob = 0;
   for (let i = 0; i < nE && nBlob < 16; i++) if (eState[i] < 2 && hypot(eX[i] - cP[0], eZ[i] - cP[2]) < 40) { const o = nBlob++ * 4, ty = eType[i]; blobA[o] = eX[i]; blobA[o + 1] = eZ[i]; blobA[o + 2] = ty === 2 ? 1.6 : ty === 1 ? 1 : 1.5; blobA[o + 3] = ty === 1 ? .35 : .82; }
@@ -591,6 +624,7 @@ function buildSprites() {
   nDyn = 0; const d = dynL;
   if (flashL > .02 && state === 1) { d[0] = cP[0] + cF[0] * 1.3; d[1] = cP[1] + cF[1] * 1.3 - .1; d[2] = cP[2] + cF[2] * 1.3; d[3] = 5; d[4] = 3.2 * flashL; d[5] = 1.9 * flashL; d[6] = .75 * flashL; d[7] = .2; nDyn++; }
   if (impT > 0) { const o = nDyn++ * 8; d[o] = impX; d[o + 1] = impY; d[o + 2] = impZ; d[o + 3] = 4; d[o + 4] = 10; d[o + 5] = 6; d[o + 6] = 2; d[o + 7] = .1; }
+  for (let k = 0; k < nBar && nDyn < 8; k++) if (bSt[k] === 2 && bT[k] < .7) { const o = nDyn++ * 8, f = 1 - bT[k] / .7, q = 70 * f * f; d[o] = barrels[k * 2]; d[o + 1] = 1.3; d[o + 2] = barrels[k * 2 + 1]; d[o + 3] = 16; d[o + 4] = q; d[o + 5] = q * .5; d[o + 6] = q * .15; d[o + 7] = .3; }
   for (let k = 0; k < NPJ && nDyn < 8; k++) if (jL[k] > 0) { const o = nDyn++ * 8; d[o] = jX[k]; d[o + 1] = jY[k]; d[o + 2] = jZ[k]; d[o + 3] = 6; d[o + 4] = 2; d[o + 5] = 9; d[o + 6] = 11; d[o + 7] = .2; }
 }
 
@@ -643,5 +677,5 @@ function sim(dt) {
   cP[0] = px; cP[1] = (state === 2 ? .5 : EYE) + sin(bob * 2) * .035 * bobA; cP[2] = pz;
   if (state === 1 || state === 3) { simWeapon(dt); simEnemies(dt); }
   simStuff(dt);
-  if (AW) sP[13].value = state === 1 ? spin : 0;
+  if (AW) sP[14].value = state === 1 ? spin : 0;
 }
