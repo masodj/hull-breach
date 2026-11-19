@@ -225,6 +225,9 @@ if (!AUTO) {
   addEventListener('mouseup', (e) => { if (e.button === 0) fire = 0; });
   addEventListener('wheel', () => { if (state === 1 && switchT <= 0) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } }, { passive: true });
   addEventListener('contextmenu', (e) => e.preventDefault());
+  const dB = document.querySelectorAll('#d a'), dSel = (i) => dB.forEach((el, j) => { el.className = j === i ? 's' : ''; });
+  dB.forEach((el, i) => { el.onclick = (e) => { e.stopPropagation(); if (state) return; setDiff(i); dSel(i); try { localStorage.hbd = i; } catch (e) { } }; });
+  dSel(DIFF);
   ov.addEventListener('click', () => { if (state >= 2) { location.reload(); return; } initAudio(); if (AC) AC.resume(); cv.requestPointerLock(); });
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === cv) setState(1);
@@ -233,7 +236,7 @@ if (!AUTO) {
 } else ov.style.display = 'none';
 resize();
 if (CAP) window.__in = (o) => {
-  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; }
+  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
   return { px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
 };
 if (CAP) { window.__frame = (n = 1) => { for (let i = 0; i < n; i++) step(FIXDT || 1 / 60); return frameNo; }; window.__ready = 1; }

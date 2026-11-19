@@ -1,5 +1,5 @@
 // ---------- game state (all preallocated) ----------
-const EYE = 1.7, NEMAX = 24, PARTS = 48, NPK = 32, NPJ = 24, IS = 36;
+const EYE = 1.7, NEMAX = 48, PARTS = 48, NPK = 32, NPJ = 24, IS = 36;
 const EB = 1, PB = EB + NEMAX * PARTS, JB = PB + NPK * 2, WB = JB + NPJ, MAXINST = WB + 64;
 const instA = new Float32Array(MAXINST * IS), instP = new Float32Array(MAXINST * IS), stamp = new Int32Array(MAXINST).fill(-9);
 instA[0] = instA[5] = instA[10] = 1; instA[15] = 1; instA[16] = instA[21] = instA[26] = 1; instA[32] = instA[33] = instA[34] = 1;
@@ -25,15 +25,24 @@ const MAXS = NPT + NBM + NPJ + 8, sprA = new Float32Array(MAXS * 12); let nS = 0
 const dynL = new Float32Array(64), blobA = new Float32Array(64); let nDyn = 0, nBlob = 0;
 let impX = 0, impY = 0, impZ = 0, impT = 0, flashL = 0;
 
-for (const [c, x, z] of spawns) {
-  if (c === 'h' || c === 'a') { kX[nK] = x; kZ[nK] = z; kType[nK] = c === 'a' ? 1 : 0; kOn[nK++] = 1; continue; }
-  const ty = c === 'c' ? 0 : c === 's' ? 1 : 2, n = ty === 0 ? 3 : 1;
-  for (let k = 0; k < n && nE < NEMAX; k++) {
-    eType[nE] = ty; eX[nE] = x + (n > 1 ? cos(k * 2.094 + x) * 1.75 : 0); eZ[nE] = z + (n > 1 ? sin(k * 2.094 + x) * 1.75 : 0); eY[nE] = ty === 1 ? 1.7 : 0;
-    eHp[nE] = EHP[ty]; eYaw[nE] = rnd() * 6.28; ePh[nE] = rnd() * 6; eSd[nE] = rnd(); nE++;
+// difficulty: 0 easy, 1 medium (+50% health, bigger groups), 2 hard (+75% health, bigger groups still)
+let DIFF = 0;
+function setDiff(d) {
+  DIFF = d; nE = 0;
+  for (const [c, x, z] of spawns) {
+    if (c === 'h' || c === 'a') continue;
+    const ty = c === 'c' ? 0 : c === 's' ? 1 : 2, n = ty === 0 ? 3 + d : ty === 1 ? (d ? 2 : 1) : d > 1 ? 2 : 1, r = ty === 2 ? 1.5 : 1.75;
+    for (let k = 0; k < n && nE < NEMAX; k++) {
+      const an = k * 6.2832 / max(n, 3) + x;
+      cX = x + (n > 1 ? cos(an) * r : 0); cZ = z + (n > 1 ? sin(an) * r : 0); if (d) collide(ERAD[ty] + .25);
+      eType[nE] = ty; eX[nE] = cX; eZ[nE] = cZ; eY[nE] = ty === 1 ? 1.7 : 0; eState[nE] = eSee[nE] = 0; eT[nE] = eAtk[nE] = eFlash[nE] = 0;
+      eHp[nE] = EHP[ty] * [1, 1.5, 1.75][d]; eYaw[nE] = rnd() * 6.28; ePh[nE] = rnd() * 6; eSd[nE] = rnd(); nE++;
+    }
   }
+  alive = nE;
 }
-alive = nE;
+for (const [c, x, z] of spawns) if (c === 'h' || c === 'a') { kX[nK] = x; kZ[nK] = z; kType[nK] = c === 'a' ? 1 : 0; kOn[nK++] = 1; }
+{ let d = 0; if (!AUTO) try { d = +localStorage.hbd || 0; } catch (e) { } setDiff(max(0, min(2, qn('d', d) | 0))); }
 
 // ---------- effects ----------
 function spark(x, y, z, vx, vy, vz, life, size, r, g, b) {
@@ -244,7 +253,7 @@ function hurt(i, d) {
   if (eState[i] >= 2) return;
   eHp[i] -= d; eFlash[i] = 1; snd(5); if (eState[i] === 0) eState[i] = 1; hitMark = 1;
   if (eHp[i] <= 0) {
-    eState[i] = 2; eT[i] = 0; alive--;
+    eState[i] = 2; eT[i] = 0; alive--; { const kx = eX[i] - px, kz = eZ[i] - pz, kl = hypot(kx, kz) || 1, ks = [4.5, 2.5, 1.2][eType[i]]; eKx[i] = kx / kl * ks; eKz[i] = kz / kl * ks; }
     const ty = eType[i]; burst(eX[i], eY[i] + (ty === 2 ? 1.4 : .6), eZ[i], ty === 2 ? 40 : 22, ty === 2 ? 7 : 5, .9, ty === 2 ? .1 : .07, ty === 1 ? .3 : .5, 1, ty === 1 ? 1 : .2);
     snd(6);
     if (alive === 0 && !AUTO) setState(3);
@@ -304,7 +313,14 @@ function simEnemies(dt) {
   for (let i = 0; i < nE; i++) {
     const st = eState[i]; if (st === 3) continue;
     const ty = eType[i]; eFlash[i] -= eFlash[i] * min(1, dt * 10);
-    if (st === 2) { eT[i] += dt; if (eT[i] > .6) eState[i] = 3; continue; }
+    if (st === 2) {
+      const D = EDT[ty], k0 = eT[i] / D; eT[i] += dt; const k = eT[i] / D, sl = max(0, 1 - k * 1.6) * dt;
+      cX = eX[i] + eKx[i] * sl; cZ = eZ[i] + eKz[i] * sl; collide(ERAD[ty]); eX[i] = cX; eZ[i] = cZ;
+      if (ty === 1 && k0 < .5 && k >= .5) burst(eX[i], .2, eZ[i], 18, 5, .7, .06, .3, 1, 1);
+      if (ty === 2 && k0 < .85 && k >= .85) burst(eX[i], .2, eZ[i], 14, 4, .5, .05, .5, .5, .45);
+      if (k >= 1) { eT[i] = D; eState[i] = 3; }
+      continue;
+    }
     const dx = px - eX[i], dz = pz - eZ[i], dist = hypot(dx, dz) || 1e-3;
     if (((i + frameNo) & 7) === 0) eSee[i] = dist < 40 ? los(eX[i], eZ[i], px, pz) : 0;
     ePh[i] += dt * (st ? 1 : .25);
@@ -399,14 +415,17 @@ function seg(ax, ay, az, bx, by, bz, r, taper = 1, shape = 3) {
 }
 const sty = (mat, em, r, g, b) => { sMat = mat; sEm = em; sR = r; sG = g; sB = b; };
 
+const EDT = [.9, 1.1, 1.5], eKx = new Float32Array(NEMAX), eKz = new Float32Array(NEMAX), sm = (x) => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
 function drawEnemy(i) {
   const ty = eType[i], st = eState[i], ph = ePh[i]; ic = EB + i * PARTS;
-  if (st === 3) return;
-  let sc = 1, sink = 0; if (st === 2) { const k = eT[i] / .6; sc = 1 - k * k * .85; sink = k * (ty === 1 ? 1.2 : .2); }
-  const fl = eFlash[i] > .05 ? eFlash[i] : 0, ag = st === 1 ? 1 : .45; sFl = fl;
+  // dk: death progress 0..1 (1 = corpse at rest)
+  const dk = st >= 2 ? min(1, eT[i] / EDT[ty]) : 0, fl = st < 3 && eFlash[i] > .05 ? eFlash[i] : 0, ag = st === 1 ? 1 : st ? .45 - dk * .33 : .45, eg = st === 1 ? 1 : .45 * (1 - dk), gf = 1 - dk * .85; sFl = fl;
   if (ty === 0) {
     // crawler: segmented insectoid
-    eSet(eX[i], -sink, eZ[i], eYaw[i], sc); gR = 1; gG = .42; gB = .08;
+    // death: hop, roll onto the back, legs twitch and curl
+    const c = sm((dk - .4) / .6), tw = st === 2 ? sin(eT[i] * 45) * .5 * dk * (1 - dk) : 0;
+    eSet(eX[i], sin(min(1, dk / .6) * PI) * .45 - c * .05, eZ[i], eYaw[i], 1); gR = 1; gG = .42; gB = .08; gR *= gf; gG *= gf; gB *= gf;
+    if (dk > 0) { eMove(0, .5, 0); eRotZ(sm(dk / .6) * PI * (i & 1 ? 1 : -1)); eMove(0, -.5, 0); }
     const bb = sin(ph * 2) * .03;
     sty(14, 1.6 * ag, .1, .14, .13);
     prim(2, 0, .46 + bb, 0, .3, .19, .4); prim(2, 0, .43 + bb, .48, .2, .15, .23);
@@ -417,17 +436,20 @@ function drawEnemy(i) {
     for (let sd = -1; sd <= 1; sd += 2) { seg(sd * .1, .38 + bb, .62, sd * .22, .33 + bb, .84, .05, .7); seg(sd * .22, .33 + bb, .84, sd * .05, .28 + bb, 1.02, .035, .05, 2); }
     sty(14, 1.6 * ag, .1, .14, .13);
     for (let k = 0; k < 6; k++) {
-      const sd = k < 3 ? 1 : -1, j = k % 3, p = ph + (j + (k < 3 ? 0 : 1)) * PI, sw = sin(p) * .2, lf = max(0, cos(p)) * .16, z = .3 - j * .3;
-      const kx = sd * .74, ky = .82 + lf, kz = z + sw * .6;
+      const sd = k < 3 ? 1 : -1, j = k % 3, p = ph + (j + (k < 3 ? 0 : 1)) * PI, sw = sin(p) * .2 * (1 - c) + (k & 1 ? tw : -tw), lf = max(0, cos(p)) * .16 * (1 - c), z = .3 - j * .3;
+      const kx = sd * (.74 - .19 * c), ky = .82 + lf - .77 * c, kz = z + sw * .6;
       prim(2, sd * .27, .45 + bb, z, .09, .08, .09); seg(sd * .27, .45 + bb, z, kx, ky, kz, .075, .45);
-      prim(2, kx, ky, kz, .05, .05, .05); seg(kx, ky, kz, sd * 1.02, lf, z + sw, .05, .05, 2); seg(kx, ky, kz, kx + sd * .16, ky + .2, kz, .03, .05, 2);
+      prim(2, kx, ky, kz, .05, .05, .05); seg(kx, ky, kz, sd * (1.02 - .82 * c), lf + .3 * c, z * (1 - .2 * c) + sw, .05, .05, 2); seg(kx, ky, kz, kx + sd * .16, ky + .2, kz, .03, .05, 2);
     }
-    sty(6, 9 * ag, 1, .45, .08); sFl = 0;
+    sty(6, 9 * eg, 1, .45, .08); sFl = 0;
     prim(2, .09, .5 + bb, .69, .035, .035, .035); prim(2, -.09, .5 + bb, .69, .035, .035, .035); prim(2, .16, .47 + bb, .6, .025, .025, .025); prim(2, -.16, .47 + bb, .6, .025, .025, .025);
   } else if (ty === 1) {
     // spitter: floating hooded polyp
-    eSet(eX[i], eY[i] - sink, eZ[i], eYaw[i], sc); gR = .15; gG = .85; gB = 1;
-    const pu = 1 + sin(ph * 4) * .05, chg = max(0, 1 - eAtk[i] * 2.5);
+    // death: loses lift, drops, bell deflates and the tentacles splay on the floor
+    const fa = min(1, dk / .5), q = sm((dk - .42) / .4);
+    eSet(eX[i], eY[i] + (.27 - eY[i]) * fa * fa, eZ[i], eYaw[i] + dk * 1.2, 1); gR = .15; gG = .85; gB = 1; gR *= gf; gG *= gf; gB *= gf;
+    if (dk > 0) { eRotX(.5 * sm(fa) * (1 - q * .7)); for (let k = 0; k < 3; k++) { E[k] *= 1 + .2 * q; E[6 + k] *= 1 + .2 * q; E[3 + k] *= 1 - .55 * q; } }
+    const pu = 1 + sin(ph * 4) * .05, chg = st < 2 ? max(0, 1 - eAtk[i] * 2.5) : 0, q1 = 1 - q;
     sty(14, 1.8 * ag + chg * 3, .16, .08, .22);
     prim(2, 0, 0, 0, .42 * pu, .5, .42 * pu);
     sty(14, 1.2 * ag, .09, .05, .13);
@@ -436,20 +458,24 @@ function drawEnemy(i) {
     for (let k = 0; k < 3; k++) { const a = k * 2.094 + 1.57; seg(cos(a) * .2, .5, sin(a) * .2 - .05, cos(a) * .42, .95, sin(a) * .42 - .2, .07, .05, 2); }
     sty(14, 1.8 * ag, .16, .08, .22);
     for (let k = 0; k < 5; k++) {
-      const a = k * 1.2566 + .6, bx = cos(a) * .25, bz = sin(a) * .25, s1 = sin(ph * 2.2 + k) * .12, s2 = sin(ph * 2.2 + k + 1) * .2, s3 = sin(ph * 2.2 + k + 2) * .3;
-      seg(bx, -.36, bz, bx * 1.2 + s1, -.72, bz * 1.2, .075, .7); seg(bx * 1.2 + s1, -.72, bz * 1.2, bx * 1.3 + s2, -1.08, bz * 1.3, .053, .65); seg(bx * 1.3 + s2, -1.08, bz * 1.3, bx * 1.2 + s3, -1.45, bz * 1.2, .034, .05, 2);
+      const a = k * 1.2566 + .6, bx = cos(a) * .25, bz = sin(a) * .25, s1 = sin(ph * 2.2 + k) * .12 * q1, s2 = sin(ph * 2.2 + k + 1) * .2 * q1, s3 = sin(ph * 2.2 + k + 2) * .3 * q1;
+      const r1 = 1.2 + 1.8 * q, r2 = 1.3 + 3.3 * q, r3 = 1.2 + 4.8 * q, y1 = -.72 + .32 * q, y2 = -1.08 + .66 * q, y3 = -1.45 + 1.01 * q;
+      seg(bx, -.36, bz, bx * r1 + s1, y1, bz * r1, .075, .7); seg(bx * r1 + s1, y1, bz * r1, bx * r2 + s2, y2, bz * r2, .053, .65); seg(bx * r2 + s2, y2, bz * r2, bx * r3 + s3, y3, bz * r3, .034, .05, 2);
     }
-    sty(6, (5 + chg * 14) * ag, .2, .9, 1); sFl = 0;
+    sty(6, (5 + chg * 14) * eg, .2, .9, 1); sFl = 0;
     prim(2, 0, .03, .38, .15, .15, .1); prim(2, .2, .13, .31, .06, .06, .05); prim(2, -.2, .13, .31, .06, .06, .05);
     for (let k = 0; k < 3; k++) { const a = k * 2.094 + 1; prim(2, cos(a) * .38, -.22, sin(a) * .38, .1 * pu, .13 * pu, .1 * pu); }
   } else {
     // brute: hunched armoured biped, visor head sunk between plated shoulders
-    const wind = eT[i] > 0 && st === 1 ? 1 - eT[i] / .45 : 0, w = sin(ph * 2.4), lean = .2 + wind * .25;
-    eSet(eX[i], -sink, eZ[i], eYaw[i], sc * 1.08); gR = .4; gG = .95; gB = .1;
+    // death: staggers back with arms flung up, topples onto its back, bounces once, arms drop to the floor
+    const a1 = sm(dk / .3), a2 = max(0, min(1, (dk - .25) / .6)), fall = a2 * a2, bo = dk > .85 ? sin((dk - .85) / .15 * PI) * .07 : 0;
+    const wind = eT[i] > 0 && st === 1 ? 1 - eT[i] / .45 : 0, w = sin(ph * 2.4) * (1 - a1), lean = (.2 + wind * .25) * (1 - a1 * .8);
+    eSet(eX[i], fall * .42 + bo * .5, eZ[i], eYaw[i], 1.08); gR = .4; gG = .95; gB = .1; gR *= gf; gG *= gf; gB *= gf;
+    if (dk > 0) eRotX(-(a1 * .2 + fall * 1.32 - bo));
     const SK = () => sty(14, 1.5 * ag, .1, .1, .085), AR = () => sty(14, .25 * ag, .05, .055, .055);
     SK(); prim(2, 0, 1.02, 0, .4, .3, .3);
     for (let sd = -1; sd <= 1; sd += 2) {
-      const s = w * sd * .35, kx = sd * .32, kz = .14 + s * .5, ax = sd * .3, az = s - .05;
+      const s = w * sd * .35, kx = sd * (.32 + fall * .08), kz = .14 + s * .5 - fall * .22, ax = sd * (.3 + fall * .2), az = s - .05 - fall * .2;
       SK(); seg(sd * .24, .98, 0, kx, .55, kz, .2, .7); seg(kx, .55, kz, ax, .14, az, .13, .85);
       AR(); prim(4, kx, .56, kz + .08, .13, .15, .1); prim(4, ax, .09, az + .12, .17, .09, .27);
       seg(ax + .08, .08, az + .3, ax + .11, .02, az + .55, .05, .05, 2); seg(ax - .08, .08, az + .3, ax - .11, .02, az + .55, .05, .05, 2);
@@ -461,7 +487,7 @@ function drawEnemy(i) {
     prim(4, 0, .98, .3, .2, .15, .2); seg(.1, .9, .46, .2, .72, .62, .045, .05, 2); seg(-.1, .9, .46, -.2, .72, .62, .045, .05, 2);
     for (let k = 0; k < 3; k++) { prim(4, 0, .98 - k * .27, -.24 - min(k, 1) * .12, .5 - k * .07, .13, .25 - k * .03); seg(0, 1.04 - k * .27, -.42, 0, 1.3 - k * .27, -.82, .085, .05, 2); }
     for (let sd = -1; sd <= 1; sd += 2) {
-      const s = -w * sd * .3 - wind * 1.6 * (sd > 0 ? 1 : .6), ex = sd * .92, ey = .32 + max(0, -s) * .25, ez = .1 + s * .4, hx = sd * .8, hy = -.25 - s * .5, hz = .5 - s * .35;
+      const s = -w * sd * .3 - wind * 1.6 * (sd > 0 ? 1 : .6) - .9 * a1 * (1 - fall) + .3 * fall, ex = sd * (.92 + fall * .2), ey = .32 + max(0, -s) * .25, ez = .1 + s * .4 - fall * .45, hx = sd * (.8 + fall * .55), hy = -.25 - s * .5, hz = .5 - s * .35 - fall * .6;
       AR();
       prim(4, sd * .74, .9, .0, .3, .2, .32); prim(4, sd * .86, .76, .0, .2, .16, .26);
       seg(sd * .7, 1.02, .1, sd * .82, 1.42, .0, .08, .05, 2); seg(sd * .86, 1.0, -.12, sd * 1.12, 1.3, -.22, .07, .05, 2);
@@ -469,7 +495,7 @@ function drawEnemy(i) {
       for (let k = -1; k <= 1; k++) seg(hx + k * .1, hy - .08, hz + .12, hx + k * .16, hy - .38, hz + .36, .055, .05, 2);
       SK(); seg(sd * .72, .8, 0, ex, ey, ez, .18, .8); seg(ex, ey, ez, hx, hy, hz, .15, 1.25); prim(2, hx, hy, hz, .19, .15, .19);
     }
-    sty(6, 9 * ag, .5, 1, .15); sFl = 0;
+    sty(6, 9 * eg, .5, 1, .15); sFl = 0;
     prim(4, 0, 1.0, .5, .15, .022, .02); prim(2, .0, .9, .5, .02, .02, .02);
     ePop();
   }
