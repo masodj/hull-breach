@@ -109,7 +109,7 @@ function uniforms(dt) {
   U[76] = FOVF; U[77] = a; U[78] = NEAR; U[79] = 1.05;
   U[80] = hp; U[81] = mag[weapon]; U[82] = res[weapon]; U[83] = alive;
   U[84] = weapon; U[85] = dmgFlash; U[86] = pickFlash; U[87] = hitMark;
-  U[88] = state === 2 ? 1 : 0; U[89] = reloadT > 0 ? max(.02, 1 - reloadT / reloadD) : 0; U[91] = min(1, kick + hypot(pvx, pvz) * .06);
+  U[88] = state === 2 ? 1 : 0; U[89] = reloadT > 0 ? max(.02, 1 - reloadT / reloadD) : 0; U[90] = AUTO ? -1 : playT; U[91] = min(1, kick + hypot(pvx, pvz) * .06);
   U[92] = nDyn; U[94] = resetHist; resetHist = 0; U[95] = nBlob;
   for (let k = 0; k < nBlob * 4; k++) U[352 + k] = blobA[k];
   for (let k = 0; k < nDyn * 8; k++) U[96 + k] = dynL[k];
@@ -202,14 +202,28 @@ async function finishBench() {
 }
 
 // ---------- state + input ----------
+// ---------- local leaderboard: ten best clear times per difficulty, kept in localStorage ----------
+const DN = ['EASY', 'MEDIUM', 'HARD'];
+let pName = '';
+const lbLoad = () => { try { const l = JSON.parse(localStorage.hbl); if (l.length === 3) return l; } catch (e) { } return [[], [], []]; };
+const fmtT = (t) => { const m = floor(t / 60), s = t - m * 60; return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); };
+const esc = (t) => String(t).replace(/[&<>]/g, (c) => '&#' + c.charCodeAt(0) + ';');
+const lbHtml = (d, hi) => { const l = lbLoad()[d]; return l.length ? '<table>' + l.map((e, i) => `<tr${i === hi ? ' class=s' : ''}><td>${i + 1}.<td>${esc(e[1] || '-')}<td>${fmtT(e[0])}<td>${esc(e[2])}`).join('') + '</table>' : '<small>No cleared runs on ' + DN[d] + ' yet</small>'; };
+function lbAdd() {
+  const l = lbLoad(), e = [Math.round(playT * 10) / 10, pName, new Date().toISOString().slice(0, 10)];
+  l[DIFF].push(e); l[DIFF].sort((a, b) => a[0] - b[0]); const rank = l[DIFF].indexOf(e); l[DIFF].length = min(l[DIFF].length, 10);
+  try { localStorage.hbl = JSON.stringify(l); } catch (e) { }
+  return rank;
+}
 function setState(s) {
   state = s;
   if (s === 2) { ov.style.display = 'flex'; msg.innerHTML = '<b>YOU DIED</b><br>Click to try again'; document.exitPointerLock(); }
-  else if (s === 3) { ov.style.display = 'flex'; msg.innerHTML = '<b>SHIP CLEARED</b><br>Every alien is dead. Click to play again'; document.exitPointerLock(); }
+  else if (s === 3) { ov.style.display = 'flex'; const rk = lbAdd(); msg.innerHTML = `<b>SHIP CLEARED</b><br>${DN[DIFF]} &nbsp;&middot;&nbsp; ${fmtT(playT)}${rk < 10 ? ' &nbsp;&middot;&nbsp; #' + (rk + 1) : ''}<br><br>${lbHtml(DIFF, rk)}<br>Click to play again`; document.exitPointerLock(); }
   else if (s === 1) ov.style.display = 'none';
 }
 if (!AUTO) {
   const key = (e, v) => {
+    if (e.target.tagName === 'INPUT') return;
     switch (e.code) {
       case 'KeyW': kW = v; break; case 'KeyS': kS = v; break; case 'KeyA': kA = v; break; case 'KeyD': kD = v; break;
       case 'ShiftLeft': case 'ShiftRight': kShift = v; break;
@@ -228,7 +242,10 @@ if (!AUTO) {
   addEventListener('mouseup', (e) => { if (e.button === 0) fire = 0; });
   addEventListener('wheel', () => { if (state === 1 && switchT <= 0) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } }, { passive: true });
   addEventListener('contextmenu', (e) => e.preventDefault());
-  const dB = document.querySelectorAll('#d a'), dSel = (i) => dB.forEach((el, j) => { el.className = j === i ? 's' : ''; });
+  const dB = document.querySelectorAll('#d a'), lbEl = document.getElementById('l'), nEl = document.getElementById('n'), dSel = (i) => { dB.forEach((el, j) => { el.className = j === i ? 's' : ''; }); lbEl.innerHTML = lbHtml(i, -1); };
+  document.getElementById('sd').textContent = RANDMAP ? 'ship seed ' + shipSeed : 'classic ship';
+  try { pName = localStorage.hbn || ''; } catch (e) { }
+  nEl.value = pName; nEl.onclick = (e) => e.stopPropagation(); nEl.oninput = () => { pName = nEl.value.trim(); try { localStorage.hbn = pName; } catch (e) { } };
   dB.forEach((el, i) => { el.onclick = (e) => { e.stopPropagation(); if (state) return; setDiff(i); dSel(i); try { localStorage.hbd = i; } catch (e) { } }; });
   dSel(DIFF);
   ov.addEventListener('click', () => { if (state >= 2) { location.reload(); return; } initAudio(); if (AC) AC.resume(); cv.requestPointerLock(); });
@@ -239,8 +256,8 @@ if (!AUTO) {
 } else ov.style.display = 'none';
 resize();
 if (CAP) window.__in = (o) => {
-  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('ebar' in o) for (let i = 0; i < 6; i++) { eX[i] = barrels[o.ebar * 2] + 1.2 + i * .9; eZ[i] = barrels[o.ebar * 2 + 1] + 2; } if ('bar' in o) { const bx = barrels[o.bar * 2], bz = barrels[o.bar * 2 + 1]; for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = bx + sin(a) * o.d, z = bz + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, bx, bz)) { px = x; pz = z; yaw = -a; pitch = Math.atan2(.62 - EYE, o.d); break; } } } if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
-  return { eh: Array.from(eHp.subarray(0, 6)).map(Math.round), et: Array.from(eType.subarray(0, 6)), nBar, bSt: Array.from(bSt.subarray(0, nBar)), px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
+  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('killall' in o) for (let i = 0; i < nE; i++) hurt(i, 1e6); if ('ebar' in o) for (let i = 0; i < 6; i++) { eX[i] = barrels[o.ebar * 2] + 1.2 + i * .9; eZ[i] = barrels[o.ebar * 2 + 1] + 2; } if ('bar' in o) { const bx = barrels[o.bar * 2], bz = barrels[o.bar * 2 + 1]; for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = bx + sin(a) * o.d, z = bz + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, bx, bz)) { px = x; pz = z; yaw = -a; pitch = Math.atan2(.62 - EYE, o.d); break; } } } if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
+  return { playT, map: MAP, nv: worldV.length / 32, nL, nE, eh: Array.from(eHp.subarray(0, 6)).map(Math.round), et: Array.from(eType.subarray(0, 6)), nBar, bSt: Array.from(bSt.subarray(0, nBar)), px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
 };
 if (CAP) { window.__frame = (n = 1) => { for (let i = 0; i < n; i++) step(FIXDT || 1 / 60); return frameNo; }; window.__ready = 1; }
 else requestAnimationFrame((t) => { lastNow = t; requestAnimationFrame(frame); });

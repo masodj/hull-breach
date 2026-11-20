@@ -57,7 +57,7 @@ nv = 0; ni = 0;
 
 // ---------- lights ----------
 const MAXL = 640, lightD = new Float32Array(MAXL * 8); let nL = 0;
-const addLight = (x, y, z, r, g, b, I, rad, src = .3) => { const o = nL++ * 8; lightD[o] = x; lightD[o + 1] = y; lightD[o + 2] = z; lightD[o + 3] = rad; lightD[o + 4] = r * I; lightD[o + 5] = g * I; lightD[o + 6] = b * I; lightD[o + 7] = src; };
+const addLight = (x, y, z, r, g, b, I, rad, src = .3) => { if (nL >= MAXL) return; const o = nL++ * 8; lightD[o] = x; lightD[o + 1] = y; lightD[o + 2] = z; lightD[o + 3] = rad; lightD[o + 4] = r * I; lightD[o + 5] = g * I; lightD[o + 6] = b * I; lightD[o + 7] = src; };
 
 // ---------- the ship ----------
 const barrels = []; // explosive barrels: x, z pairs (drawn and simulated by the game)

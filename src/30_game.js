@@ -1,5 +1,5 @@
 // ---------- game state (all preallocated) ----------
-const EYE = 1.7, NEMAX = 48, PARTS = 48, NPK = 32, NPJ = 24, IS = 36;
+const EYE = 1.7, NEMAX = 56, PARTS = 48, NPK = 32, NPJ = 24, IS = 36;
 const EB = 1, PB = EB + NEMAX * PARTS, JB = PB + NPK * 2, WB = JB + NPJ, NBAR = 16, BB = WB + 64, MAXINST = BB + NBAR * 8, NDC = 256;
 // explosive barrels: 0 intact, 1 fuse lit (chain reaction), 2 wreck
 const nBar = min(NBAR, barrels.length >> 1), bSt = new Uint8Array(NBAR), bT = new Float32Array(NBAR);
@@ -9,7 +9,7 @@ const instA = new Float32Array(MAXINST * IS), instP = new Float32Array(MAXINST *
 instA[0] = instA[5] = instA[10] = 1; instA[15] = 1; instA[16] = instA[21] = instA[26] = 1; instA[32] = instA[33] = instA[34] = 1;
 let frameNo = 0, T = 0, state = AUTO ? 1 : 0; // 0 menu 1 play 2 dead 3 win
 // player
-let px = startX * CS + 2, pz = startZ * CS + 2, yaw = 2.2, pitch = 0, pvx = 0, pvz = 0, hp = 100, bob = 0, bobA = 0;
+let px = startX * CS + 2, pz = startZ * CS + 2, yaw = startYaw, pitch = 0, pvx = 0, pvz = 0, hp = 100, bob = 0, bobA = 0;
 let weapon = 0, cool = 0, reloadT = 0, reloadD = 1, spin = 0, barrel = 0, kick = 0, switchT = 0, flashT = 0, hitMark = 0, dmgFlash = 0, pickFlash = 0;
 const mag = [8, 150], res = [32, 300], WMAG = [8, 150];
 let kW = 0, kA = 0, kS = 0, kD = 0, kShift = 0, fire = 0, wantReload = 0, mdx = 0, mdy = 0;
@@ -29,16 +29,18 @@ const MAXS = NPT + NBM + NPJ + 8 + NBAR, sprA = new Float32Array(MAXS * 12); let
 const dynL = new Float32Array(64), blobA = new Float32Array(64); let nDyn = 0, nBlob = 0;
 let impX = 0, impY = 0, impZ = 0, impT = 0, flashL = 0;
 
-// difficulty: 0 easy, 1 medium (+50% health, bigger groups), 2 hard (+75% health, bigger groups still)
-let DIFF = 0;
+// difficulty: 0 easy, 1 medium (+50% health, bigger groups), 2 hard (+75% health, bigger groups still).
+// Per difficulty: alien damage, speed, attack rate, plasma bolt speed, sight range, health crate value
+const DDM = [1, 1.4, 1.8], DSP = [1, 1.15, 1.35], DRT = [1, 1.2, 1.4], DPV = [15, 20, 26], DSEE = [26, 30, 36], DHEAL = [40, 30, 25];
+let DIFF = 0, playT = 0; // playT: seconds of actual play, shown on the HUD and recorded on the leaderboard
 function setDiff(d) {
   DIFF = d; nE = 0;
   for (const [c, x, z] of spawns) {
     if (c === 'h' || c === 'a') continue;
-    const ty = c === 'c' ? 0 : c === 's' ? 1 : 2, n = ty === 0 ? 3 + d : ty === 1 ? (d ? 2 : 1) : d > 1 ? 2 : 1, r = ty === 2 ? 1.5 : 1.75;
+    const ty = c === 'c' ? 0 : c === 's' ? 1 : 2, n = ty === 0 ? [3, 4, 6][d] : ty === 1 ? d + 1 : d > 1 ? 2 : 1, r = ty === 2 ? 1.5 : 1.75;
     for (let k = 0; k < n && nE < NEMAX; k++) {
       const an = k * 6.2832 / max(n, 3) + x;
-      cX = x + (n > 1 ? cos(an) * r : 0); cZ = z + (n > 1 ? sin(an) * r : 0); if (d) collide(ERAD[ty] + .25);
+      cX = x + (n > 1 ? cos(an) * r : 0); cZ = z + (n > 1 ? sin(an) * r : 0); if (d || RANDMAP) collide(ERAD[ty] + .25);
       eType[nE] = ty; eX[nE] = cX; eZ[nE] = cZ; eY[nE] = ty === 1 ? 1.7 : 0; eState[nE] = eSee[nE] = 0; eT[nE] = eAtk[nE] = eFlash[nE] = 0;
       eHp[nE] = EHP[ty] * [1, 1.5, 1.75][d]; eYaw[nE] = rnd() * 6.28; ePh[nE] = rnd() * 6; eSd[nE] = rnd(); nE++;
     }
@@ -346,7 +348,7 @@ function simEnemies(dt) {
     const dx = px - eX[i], dz = pz - eZ[i], dist = hypot(dx, dz) || 1e-3;
     if (((i + frameNo) & 7) === 0) eSee[i] = dist < 40 ? los(eX[i], eZ[i], px, pz) : 0;
     ePh[i] += dt * (st ? 1 : .25);
-    if (st === 0) { const md0 = EKEEP[ty]; if (dist < md0) { eX[i] = px - dx / dist * md0; eZ[i] = pz - dz / dist * md0; } if (eSee[i] && dist < 26 && POSE < 0) eState[i] = 1; if (ty === 1) eY[i] = 1.7 + sin(ePh[i] * 3) * .15; continue; }
+    if (st === 0) { const md0 = EKEEP[ty]; if (dist < md0) { eX[i] = px - dx / dist * md0; eZ[i] = pz - dz / dist * md0; } if (eSee[i] && dist < DSEE[DIFF] && POSE < 0) eState[i] = 1; if (ty === 1) eY[i] = 1.7 + sin(ePh[i] * 3) * .15; continue; }
     // steering
     let tx = dx / dist, tz = dz / dist;
     if (!eSee[i]) {
@@ -357,25 +359,27 @@ function simEnemies(dt) {
       if (flow[c + MW] >= 0 && flow[c + MW] < b) { b = flow[c + MW]; bx = cx; bz = cz + 1; }
       const gx = bx * CS + 2 - eX[i], gz = bz * CS + 2 - eZ[i], gl = hypot(gx, gz) || 1; tx = gx / gl; tz = gz / gl;
     }
-    let sp = ESPD[ty];
+    let sp = ESPD[ty] * DSP[DIFF];
     eAtk[i] -= dt;
-    if (ty === 0) { if (dist < 2.7) { sp = 0; if (eAtk[i] <= 0) { damage(5); eAtk[i] = .7; } } }
+    if (ty === 0) { if (dist < 2.7) { sp = 0; if (eAtk[i] <= 0) { damage(5 * DDM[DIFF]); eAtk[i] = .7 / DRT[DIFF]; } } }
     else if (ty === 1) {
       eY[i] = 1.7 + sin(ePh[i] * 3) * .15;
       if (eSee[i]) {
         const sd = sin(ePh[i] * .7 + eSd[i] * 6) > 0 ? 1 : -1, back = dist < 7 ? -1 : dist > 12 ? 1 : 0, ox = tx, oz = tz;
         tx = ox * back - oz * sd * .8; tz = oz * back + ox * sd * .8;
         if (eAtk[i] <= 0 && dist < 34) {
-          eAtk[i] = 1.5 + eSd[i];
+          eAtk[i] = (1.5 + eSd[i]) / DRT[DIFF];
+          // on hard the bolt leads a moving player
+          const pv = DPV[DIFF], tl = DIFF > 1 ? dist / pv * .8 : 0, ax = dx + pvx * tl, az = dz + pvz * tl, ad = hypot(ax, az) || 1e-3;
           for (let k = 0; k < NPJ; k++) if (jL[k] <= 0) {
-            const vy = (EYE - .25 - eY[i]) / dist, l = hypot(dx / dist, vy, dz / dist);
-            jX[k] = eX[i] + dx / dist * .6; jY[k] = eY[i]; jZ[k] = eZ[i] + dz / dist * .6; jVx[k] = dx / dist / l * 15; jVy[k] = vy / l * 15; jVz[k] = dz / dist / l * 15; jL[k] = 4; if (dist < 30) snd(11); break;
+            const vy = (EYE - .25 - eY[i]) / ad, l = hypot(ax / ad, vy, az / ad);
+            jX[k] = eX[i] + ax / ad * .6; jY[k] = eY[i]; jZ[k] = eZ[i] + az / ad * .6; jVx[k] = ax / ad / l * pv; jVy[k] = vy / l * pv; jVz[k] = az / ad / l * pv; jL[k] = 4; if (dist < 30) snd(11); break;
           }
         }
       }
     } else {
-      if (eT[i] > 0) { sp = 0; eT[i] -= dt; if (eT[i] <= 0 && dist < 3.9) damage(22); }
-      else if (dist < 3.3 && eAtk[i] <= 0) { eT[i] = .45; eAtk[i] = 1.5; }
+      if (eT[i] > 0) { sp = 0; eT[i] -= dt; if (eT[i] <= 0 && dist < 3.9) damage(22 * DDM[DIFF]); }
+      else if (dist < 3.3 && eAtk[i] <= 0) { eT[i] = .45; eAtk[i] = 1.5 / DRT[DIFF]; }
     }
     const a = min(1, dt * 6); eVx[i] += (tx * sp - eVx[i]) * a; eVz[i] += (tz * sp - eVz[i]) * a;
     // separation
@@ -392,7 +396,7 @@ function simStuff(dt) {
   for (let k = 0; k < NPJ; k++) if (jL[k] > 0) {
     jL[k] -= dt; jX[k] += jVx[k] * dt; jY[k] += jVy[k] * dt; jZ[k] += jVz[k] * dt;
     const hitP = hypot(jX[k] - px, jY[k] - (EYE - .4), jZ[k] - pz) < .7;
-    if (hitP || jY[k] < .1 || sdfAt(sdS, jX[k], jZ[k]) < .12 || jL[k] <= 0) { jL[k] = 0; burst(jX[k], jY[k], jZ[k], 10, 4, .4, .05, .3, 1, 1); if (hitP) damage(11); }
+    if (hitP || jY[k] < .1 || sdfAt(sdS, jX[k], jZ[k]) < .12 || jL[k] <= 0) { jL[k] = 0; burst(jX[k], jY[k], jZ[k], 10, 4, .4, .05, .3, 1, 1); if (hitP) damage(11 * DDM[DIFF]); }
   }
   for (let o = 0; o < NPT * 12; o += 12) if (pt[o + 6] > 0) {
     pt[o + 6] -= dt; pt[o + 4] -= 9 * dt; pt[o] += pt[o + 3] * dt; pt[o + 1] += pt[o + 4] * dt; pt[o + 2] += pt[o + 5] * dt;
@@ -400,7 +404,7 @@ function simStuff(dt) {
   }
   for (let o = 0; o < NBM * 12; o += 12) if (bm[o + 6] > 0) bm[o + 6] -= dt;
   for (let k = 0; k < nK; k++) if (kOn[k] && hypot(kX[k] - px, kZ[k] - pz) < 1.3 && state === 1 && !AUTO) {
-    if (kType[k]) { res[0] = min(64, res[0] + 12); res[1] = min(600, res[1] + 150); } else { if (hp >= 100) continue; hp = min(100, hp + 40); }
+    if (kType[k]) { res[0] = min(64, res[0] + 12); res[1] = min(600, res[1] + 150); } else { if (hp >= 100) continue; hp = min(100, hp + DHEAL[DIFF]); }
     kOn[k] = 0; pickFlash = 1; snd(kType[k] ? 9 : 8);
   }
   flashL += ((flashT > 0 ? 1 : 0) - flashL) * min(1, dt * (flashT > 0 ? 40 : 14));
@@ -667,6 +671,7 @@ if (POSE >= 0) { const o = POSE * 6; px = POSES[o] * CS; pz = POSES[o + 1] * CS;
 function sim(dt) {
   T += dt;
   if (state === 1) {
+    playT += dt;
     if (FLY) simFly(dt); else if (POSE < 0) simPlayer(dt);
     if (POSE >= 0 && fire) mag[1] = 99;
   }

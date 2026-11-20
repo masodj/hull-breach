@@ -4,7 +4,7 @@ A first-person shooter set on a dark alien-infested spaceship. Kill every alien 
 
 The whole game is one self-contained `index.html` (about 95 KB minified). It is rendered with WebGPU, uses no engine or library, and loads no external files: geometry, materials, sky, sounds and music are all generated in code.
 
-Version 1.1 · © 2026 masodj@centrum.cz
+Version 1.2 · © 2026 masodj@centrum.cz
 
 ## Play
 
@@ -39,25 +39,36 @@ Dead aliens stay where they fall.
 
 **Difficulty**
 
-| | Aliens | Alien health |
-|---|---|---|
-| Easy | 24 | normal |
-| Medium | 34 | +50% |
-| Hard | 43 | +75% |
+| | Easy | Medium | Hard |
+|---|---|---|---|
+| Aliens | 24 | 34 | 53 |
+| Alien health | normal | +50% | +75% |
+| Alien damage | normal | +40% | +80% |
+| Alien speed | normal | +15% | +35% |
+| Alien attack rate | normal | +20% | +40% |
+| Plasma bolt speed | 15 m/s | 20 m/s | 26 m/s, aimed ahead of a moving player |
+| Health crate | 40 | 30 | 25 |
 
-Ammo and health crates are the same on every difficulty. The choice is remembered between runs.
+Ammo crates are the same on every difficulty. The choice is remembered between runs.
+
+**Timer and best times**
+
+- A run timer in the top-right corner counts play time (it stops while paused).
+- Clearing the ship records your time in a local leaderboard: the ten best times per difficulty, with the name typed on the start screen and the date. It is stored in the browser only.
+- The start screen shows the best times for the selected difficulty.
 
 **The ship**
 
-- Corridors, halls, a reactor room, an infested hive and observation decks with a planet and stars outside.
-- Green crates restore 40 health; orange crates give 12 shells and 150 minigun rounds.
+- The layout is different on every run: rooms, corridors, props, aliens and crates are generated from a random seed. Only the north observation deck is always there.
+- Corridors, halls, a reactor room, infested nests and an observation deck with a planet and stars outside.
+- Green crates restore health (see the table); orange crates give 12 shells and 150 minigun rounds.
 - Red barrels with a glowing band explode when shot. The blast hurts everything within 7 m, including you, and can set off other barrels.
 - Shots leave marks on walls, floors and ceilings.
 
 ## How it is built
 
 - **Renderer:** deferred WebGPU pipeline with a depth pre-pass, soft shadows from a wall distance field, ambient occlusion, screen-space reflections, light haze and sun shafts, temporal anti-aliasing and bloom.
-- **Geometry:** the ship is generated from an ASCII map at start-up. Aliens, weapons, crates and barrels are built from one instanced unit shape that the vertex shader morphs into boxes, spheres, cylinders and rounded boxes.
+- **Geometry:** a layout generator places rooms, links them with corridors and checks that every cell is reachable; the ship mesh is then built from that map at start-up. Aliens, weapons, crates and barrels are built from one instanced unit shape that the vertex shader morphs into boxes, spheres, cylinders and rounded boxes.
 - **Audio:** a single audio worklet synthesises every sound effect, a room reverb and a 174 bpm drum and bass track in real time.
 - **No garbage:** game state lives in preallocated typed arrays, so the game code allocates nothing per frame.
 
@@ -83,10 +94,12 @@ TOOLS=$PWD/node_modules node tools/build.js
 
 | URL | What it does |
 |---|---|
-| `index.html?bench` | 60 s scripted fly-through at 2560×1440 with GPU timestamp queries; click the result overlay to copy a JSON report |
+| `index.html?bench` | 60 s scripted fly-through of the hand-made ship at 2560×1440 with GPU timestamp queries; click the result overlay to copy a JSON report |
 | `index.html?bench&mul=3` | Same, rendering each frame three times to make the run GPU-bound |
 | `index.html?fly` | The fly-through without measuring |
 | `index.html?pose=N` | One of six fixed camera poses (0–5) |
 | `index.html?d=N` | Start with difficulty 0, 1 or 2 |
+| `index.html?seed=N` | Play a specific generated ship (the seed of each run is shown at the bottom of the start screen) |
+| `index.html?classic` | Play the original hand-made ship |
 
 The design target is a steady 180 Hz at 2560×1440 on an RTX 5070 Ti (GPU frame time 11 ms or less on average, no frame over 16.7 ms). An early build measured roughly 8–9 ms per frame on that hardware; the current version has not been re-measured.

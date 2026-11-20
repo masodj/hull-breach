@@ -570,6 +570,16 @@ fn plate(p:vec2f,b:vec2f)->vec2f{let d=sdb(p,b-9.)-9.;return vec2f(clamp(.5-d,0.
     let hq=r-vec2f(-32.,15.);let dm=max(max(length(hq*vec2f(1.,.8)-vec2f(0.,2.))-11.5,-(length(vec2f(abs(hq.x)-4.6,hq.y-2.))-3.)),-sdb(hq-vec2f(0.,-9.),vec2f(1.2,4.)));
     hud+=vec3f(1.,.5,.35)*(ink(num(r-vec2f(-4.,-4.),g.hud0.w,2,38.))+ink(dm));
   }
+  if(p.x>W-250.&&p.y>1080.-110.&&g.hud2.z>=0.){
+    // run timer mm:ss
+    let r=p-vec2f(W-196.,1080.-82.);let w=19.;
+    pl=plate(r-vec2f(58.,19.),vec2f(84.,34.));
+    let tt=i32(g.hud2.z);let mm=min(tt/60,99);let ss=tt%60;
+    var d=min(seg7(r/w,mm/10),seg7((r-vec2f(26.6,0.))/w,mm%10))*w;
+    d=min(d,min(seg7((r-vec2f(70.,0.))/w,ss/10),seg7((r-vec2f(96.6,0.))/w,ss%10))*w);
+    d=min(d,min(length(r-vec2f(59.5,11.)),length(r-vec2f(59.5,27.)))-2.6);
+    hud+=cy*ink(d);
+  }
   col=mix(col,vec3f(.012,.02,.03),pl.x*.95)+vec3f(.25,.5,.6)*pl.y*.5;
   let cp=p-vec2f(W*.5,540.);
   if(max(abs(cp.x),abs(cp.y))<40.&&st<.5){
