@@ -2,7 +2,7 @@
 
 A first-person shooter set on a dark alien-infested spaceship. Kill every alien aboard.
 
-The whole game is one self-contained `index.html` (about 95 KB minified). It is rendered with WebGPU, uses no engine or library, and loads no external files: geometry, materials, sky, sounds and music are all generated in code.
+The whole game is one self-contained `index.html` (about 100 KB minified). It is rendered with WebGPU, uses no engine or library, and loads no external files: geometry, materials, sky, sounds and music are all generated in code.
 
 Version 1.2 · © 2026 masodj@centrum.cz
 
@@ -71,6 +71,19 @@ Ammo crates are the same on every difficulty. The choice is remembered between r
 - **Geometry:** a layout generator places rooms, links them with corridors and checks that every cell is reachable; the ship mesh is then built from that map at start-up. Aliens, weapons, crates and barrels are built from one instanced unit shape that the vertex shader morphs into boxes, spheres, cylinders and rounded boxes.
 - **Audio:** a single audio worklet synthesises every sound effect, a room reverb and a 174 bpm drum and bass track in real time.
 - **No garbage:** game state lives in preallocated typed arrays, so the game code allocates nothing per frame.
+
+## Why it is so small
+
+The file contains almost no data, only the code that generates everything when the game starts. A typical game is big because of its assets and engine, and this one ships neither.
+
+- **No textures:** every surface (metal panels, grime, alien skin, the planet and stars) is computed by maths in the shaders at draw time.
+- **No models:** the ship mesh is built at start-up from a 40×26 grid of cells, and aliens, guns, crates and barrels are all assembled from one unit cube that the vertex shader bends into boxes, spheres and cylinders.
+- **No audio files:** gunshots, footsteps, the reverb and the whole drum and bass track are synthesised live by one audio worklet. The music is a few note patterns plus oscillator code.
+- **No engine or libraries:** the game talks to WebGPU directly, so it only carries the features it actually uses.
+- **No fonts or images for the HUD:** the digits are seven-segment shapes drawn in the final shader.
+- **Minified:** the build shortens names and strips whitespace in both the JavaScript and the shaders.
+
+The trade-off is that the cost moves from disk to the GPU and CPU: the detail is recomputed every frame rather than read from a file.
 
 ## Source and build
 
