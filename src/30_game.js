@@ -1,6 +1,6 @@
 // ---------- game state (all preallocated) ----------
 const EYE = 1.7, NEMAX = 56, PARTS = 48, NPK = 32, NPJ = 24, IS = 36;
-const EB = 1, PB = EB + NEMAX * PARTS, JB = PB + NPK * 2, WB = JB + NPJ, NBAR = 16, BB = WB + 64, MAXINST = BB + NBAR * 8, NDC = 256;
+const EB = 1, PB = EB + NEMAX * PARTS, JB = PB + NPK * 2, WB = JB + NPJ, NBAR = 16, BB = WB + 64, GB = BB + NBAR * 8, MAXINST = GB + 16, NDC = 256;
 // explosive barrels: 0 intact, 1 fuse lit (chain reaction), 2 wreck
 const nBar = min(NBAR, barrels.length >> 1), bSt = new Uint8Array(NBAR), bT = new Float32Array(NBAR);
 // bullet marks: ring buffer of (x y z radius) (nx ny nz birth time), drawn as projected decals
@@ -11,7 +11,9 @@ let frameNo = 0, T = 0, state = AUTO ? 1 : 0; // 0 menu 1 play 2 dead 3 win
 // player
 let px = startX * CS + 2, pz = startZ * CS + 2, yaw = startYaw, pitch = 0, pvx = 0, pvz = 0, hp = 100, bob = 0, bobA = 0;
 let weapon = 0, cool = 0, reloadT = 0, reloadD = 1, spin = 0, barrel = 0, kick = 0, switchT = 0, flashT = 0, hitMark = 0, dmgFlash = 0, pickFlash = 0;
-const mag = [8, 150], res = [32, 300], WMAG = [8, 150];
+// the minigun has to be found aboard (pickup type 2); the scripted fly-through and poses carry it from the start
+let hasMG = AUTO ? 1 : 0;
+const mag = [8, AUTO ? 150 : 0], res = [32, AUTO ? 300 : 0], WMAG = [8, 150];
 let kW = 0, kA = 0, kS = 0, kD = 0, kShift = 0, fire = 0, wantReload = 0, mdx = 0, mdy = 0;
 const cP = new Float32Array(3), cR = new Float32Array(3), cU = new Float32Array(3), cF = new Float32Array(3);
 // enemies
@@ -36,7 +38,7 @@ let DIFF = 0, playT = 0; // playT: seconds of actual play, shown on the HUD and 
 function setDiff(d) {
   DIFF = d; nE = 0;
   for (const [c, x, z] of spawns) {
-    if (c === 'h' || c === 'a') continue;
+    if ('ham'.includes(c)) continue;
     const ty = c === 'c' ? 0 : c === 's' ? 1 : 2, n = ty === 0 ? [3, 4, 6][d] : ty === 1 ? d + 1 : d > 1 ? 2 : 1, r = ty === 2 ? 1.5 : 1.75;
     for (let k = 0; k < n && nE < NEMAX; k++) {
       const an = k * 6.2832 / max(n, 3) + x;
@@ -47,7 +49,8 @@ function setDiff(d) {
   }
   alive = nE;
 }
-for (const [c, x, z] of spawns) if (c === 'h' || c === 'a') { kX[nK] = x; kZ[nK] = z; kType[nK] = c === 'a' ? 1 : 0; kOn[nK++] = 1; }
+if (!AUTO && !RANDMAP) spawns.push(['m', 82, 6]); // hand-made ship: the minigun lies on the observation deck
+for (const [c, x, z] of spawns) if ('ham'.includes(c)) { kX[nK] = x; kZ[nK] = z; kType[nK] = 'ham'.indexOf(c); kOn[nK++] = 1; }
 { let d = 0; if (!AUTO) try { d = +localStorage.hbd || 0; } catch (e) { } setDiff(max(0, min(2, qn('d', d) | 0))); }
 
 // ---------- effects ----------
@@ -348,7 +351,7 @@ function simEnemies(dt) {
     const dx = px - eX[i], dz = pz - eZ[i], dist = hypot(dx, dz) || 1e-3;
     if (((i + frameNo) & 7) === 0) eSee[i] = dist < 40 ? los(eX[i], eZ[i], px, pz) : 0;
     ePh[i] += dt * (st ? 1 : .25);
-    if (st === 0) { const md0 = EKEEP[ty]; if (dist < md0) { eX[i] = px - dx / dist * md0; eZ[i] = pz - dz / dist * md0; } if (eSee[i] && dist < DSEE[DIFF] && POSE < 0) eState[i] = 1; if (ty === 1) eY[i] = 1.7 + sin(ePh[i] * 3) * .15; continue; }
+    if (st === 0) { const md0 = EKEEP[ty]; if (dist < md0) { eX[i] = px - dx / dist * md0; eZ[i] = pz - dz / dist * md0; } if (eSee[i] && dist < DSEE[DIFF] && POSE < 0 || alive < 4 && !AUTO) eState[i] = 1; /* the last three hunt the player down */ if (ty === 1) eY[i] = 1.7 + sin(ePh[i] * 3) * .15; continue; }
     // steering
     let tx = dx / dist, tz = dz / dist;
     if (!eSee[i]) {
@@ -404,7 +407,8 @@ function simStuff(dt) {
   }
   for (let o = 0; o < NBM * 12; o += 12) if (bm[o + 6] > 0) bm[o + 6] -= dt;
   for (let k = 0; k < nK; k++) if (kOn[k] && hypot(kX[k] - px, kZ[k] - pz) < 1.3 && state === 1 && !AUTO) {
-    if (kType[k]) { res[0] = min(64, res[0] + 12); res[1] = min(600, res[1] + 150); } else { if (hp >= 100) continue; hp = min(100, hp + DHEAL[DIFF]); }
+    if (kType[k] > 1) { hasMG = 1; mag[1] = 150; res[1] = min(600, res[1] + 300); weapon = 1; switchT = .3; reloadT = 0; snd(12); }
+    else if (kType[k]) { res[0] = min(64, res[0] + 12); res[1] = min(600, res[1] + 150); } else { if (hp >= 100) continue; hp = min(100, hp + DHEAL[DIFF]); }
     kOn[k] = 0; pickFlash = 1; snd(kType[k] ? 9 : 8);
   }
   flashL += ((flashT > 0 ? 1 : 0) - flashL) * min(1, dt * (flashT > 0 ? 40 : 14));
@@ -589,7 +593,18 @@ function buildInstances() {
   instP.set(instA); instA.fill(0, IS);
   for (let i = 0; i < nE; i++) drawEnemy(i);
   for (let k = 0; k < nK; k++) if (kOn[k]) {
-    ic = PB + k * 2; eSet(kX[k], .75 + sin(T * 2 + k) * .08, kZ[k], T * .8 + k, 1); gR = gG = gB = 0; sFl = 0;
+    ic = PB + k * 2; gR = gG = gB = 0; sFl = 0;
+    if (kType[k] > 1) { // minigun: a turning model of the gun over a violet ring
+      sty(6, 2.5, .7, .3, 1); eSet(kX[k], .06, kZ[k], 0, 1); prim(3, 0, 0, 0, .55, .012, .55);
+      ic = GB; eSet(kX[k], 1.05 + sin(T * 2) * .08, kZ[k], T * .8, 2); eRotX(-.2); eMove(0, 0, -.3);
+      sty(16, 1, .2, .21, .235); seg(0, 0, -.06, 0, 0, .2, .066); seg(0, 0, .2, 0, 0, .24, .05);
+      for (let j = 0; j < 6; j++) { const a = j * PI / 3, x = cos(a) * .037, y = sin(a) * .037; seg(x, y, .22, x, y, .8, .0115); }
+      sty(16, 1, .085, .09, .1); seg(0, 0, .36, 0, 0, .375, .058); seg(0, 0, .775, 0, 0, .79, .058); prim(4, 0, -.015, -.13, .05, .056, .07);
+      seg(0, -.06, -.14, 0, -.2, -.21, .029, .85, 4);
+      sty(6, 6, 1, .35, .1); seg(0, 0, .2, 0, 0, .207, .067);
+      continue;
+    }
+    eSet(kX[k], .75 + sin(T * 2 + k) * .08, kZ[k], T * .8 + k, 1);
     sty(kType[k] ? 10 : 11, 1, 1, 1, 1); prim(4, 0, 0, 0, .42, .42, .42);
     sty(6, 5, kType[k] ? 1 : .1, kType[k] ? .5 : 1, kType[k] ? .06 : .4); eSet(kX[k], .06, kZ[k], 0, 1); prim(3, 0, 0, 0, .5, .012, .5);
   }

@@ -230,8 +230,8 @@ if (!AUTO) {
       case 'KeyR': if (v) wantReload = 1; break;
       case 'KeyM': if (v && !e.repeat) { musOn ^= 1; if (AW) sP[15].value = musOn; } break;
       case 'Digit1': if (v && weapon !== 0) { weapon = 0; switchT = .3; reloadT = 0; snd(12); } break;
-      case 'Digit2': if (v && weapon !== 1) { weapon = 1; switchT = .3; reloadT = 0; snd(12); } break;
-      case 'KeyQ': if (v) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } break;
+      case 'Digit2': if (v && hasMG && weapon !== 1) { weapon = 1; switchT = .3; reloadT = 0; snd(12); } break;
+      case 'KeyQ': if (v && hasMG) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } break;
       default: return;
     }
     e.preventDefault();
@@ -240,7 +240,7 @@ if (!AUTO) {
   addEventListener('mousemove', (e) => { if (document.pointerLockElement === cv) { mdx += e.movementX; mdy += e.movementY; } });
   addEventListener('mousedown', (e) => { if (e.button === 0 && document.pointerLockElement === cv) fire = 1; });
   addEventListener('mouseup', (e) => { if (e.button === 0) fire = 0; });
-  addEventListener('wheel', () => { if (state === 1 && switchT <= 0) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } }, { passive: true });
+  addEventListener('wheel', () => { if (state === 1 && hasMG && switchT <= 0) { weapon ^= 1; switchT = .3; reloadT = 0; snd(12); } }, { passive: true });
   addEventListener('contextmenu', (e) => e.preventDefault());
   const dB = document.querySelectorAll('#d a'), lbEl = document.getElementById('l'), nEl = document.getElementById('n'), dSel = (i) => { dB.forEach((el, j) => { el.className = j === i ? 's' : ''; }); lbEl.innerHTML = lbHtml(i, -1); };
   document.getElementById('sd').textContent = RANDMAP ? 'ship seed ' + shipSeed : 'classic ship';
@@ -256,8 +256,8 @@ if (!AUTO) {
 } else ov.style.display = 'none';
 resize();
 if (CAP) window.__in = (o) => {
-  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('killall' in o) for (let i = 0; i < nE; i++) hurt(i, 1e6); if ('ebar' in o) for (let i = 0; i < 6; i++) { eX[i] = barrels[o.ebar * 2] + 1.2 + i * .9; eZ[i] = barrels[o.ebar * 2 + 1] + 2; } if ('bar' in o) { const bx = barrels[o.bar * 2], bz = barrels[o.bar * 2 + 1]; for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = bx + sin(a) * o.d, z = bz + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, bx, bz)) { px = x; pz = z; yaw = -a; pitch = Math.atan2(.62 - EYE, o.d); break; } } } if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
-  return { playT, map: MAP, nv: worldV.length / 32, nL, nE, eh: Array.from(eHp.subarray(0, 6)).map(Math.round), et: Array.from(eType.subarray(0, 6)), nBar, bSt: Array.from(bSt.subarray(0, nBar)), px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
+  if (o) { state = 1; if ('w' in o) kW = o.w; if ('fire' in o) fire = o.fire; if ('yaw' in o) yaw = o.yaw; if ('pitch' in o) pitch = o.pitch; if ('weapon' in o) weapon = o.weapon; if ('mg' in o) for (let k = 0; k < nK; k++) if (kType[k] > 1) { px = kX[k] - o.mg; pz = kZ[k]; yaw = PI / 2; pitch = -.12; } if ('r' in o) wantReload = o.r; if ('x' in o) { px = o.x; pz = o.z; } if ('hp' in o) hp = o.hp; if ('killall' in o) for (let i = 0; i < nE; i++) hurt(i, 1e6); if ('leave' in o) { let n = 0; for (let i = nE - 1; i >= 0 && alive > o.leave; i--) if (eState[i] < 2 && hypot(eX[i] - px, eZ[i] - pz) < 1e3 - n++) hurt(i, 1e6); } if ('ebar' in o) for (let i = 0; i < 6; i++) { eX[i] = barrels[o.ebar * 2] + 1.2 + i * .9; eZ[i] = barrels[o.ebar * 2 + 1] + 2; } if ('bar' in o) { const bx = barrels[o.bar * 2], bz = barrels[o.bar * 2 + 1]; for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = bx + sin(a) * o.d, z = bz + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, bx, bz)) { px = x; pz = z; yaw = -a; pitch = Math.atan2(.62 - EYE, o.d); break; } } } if ('kill' in o) for (let i = 0; i < nE; i++) if (eType[i] === o.kill && eState[i] < 2) { for (let k = 0; k < 16; k++) { const a = k * PI / 8, x = eX[i] + sin(a) * o.d, z = eZ[i] + cos(a) * o.d; if (sdfAt(sdC, x, z) > .8 && los(x, z, eX[i], eZ[i])) { px = x; pz = z; yaw = -a; eYaw[i] = a; break; } } hurt(i, 1e5); break; } }
+  return { live: Array.from(eState).map((v, i) => v < 2 && i < nE ? [v, Math.round(hypot(eX[i] - px, eZ[i] - pz))] : 0).filter(v => v), hasMG, m1: mag[1], r1: res[1], playT, map: MAP, nv: worldV.length / 32, nL, nE, eh: Array.from(eHp.subarray(0, 6)).map(Math.round), et: Array.from(eType.subarray(0, 6)), nBar, bSt: Array.from(bSt.subarray(0, nBar)), px, pz, hp, alive, state, weapon, mag: mag[weapon], res: res[weapon], reloadT, chasing: eState.filter(v => v === 1).length, nK: kOn.reduce((a, b) => a + b, 0) };
 };
 if (CAP) { window.__frame = (n = 1) => { for (let i = 0; i < n; i++) step(FIXDT || 1 / 60); return frameNo; }; window.__ready = 1; }
 else requestAnimationFrame((t) => { lastNow = t; requestAnimationFrame(frame); });

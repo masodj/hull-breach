@@ -8,7 +8,7 @@ const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return
 const hashi = (x, y) => { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
 // '#' hull  'w' window  '.' corridor  ':' hall  ',' infested corridor  ';' infested hall
-// B barrels  S start  c crawler pack  s spitter  b brute  h health  a ammo  P pillar  X cargo  C holo table  T tank  R reactor
+// B barrels  S start  c crawler pack  s spitter  b brute  h health  a ammo  m minigun  P pillar  X cargo  C holo table  T tank  R reactor
 const MAP0 = [
   '######wwwwwwwwwwwwwwwwwwwwwwwwwwww######',
   '######:B:::::::::::::::s::::B:::::######',
@@ -95,6 +95,9 @@ function genMap() {
     const deck = { x: 6, z: 1, w: 28, h: 3 }, foes = rooms.filter(r => r !== st), any = () => foes[ri(0, foes.length - 1)];
     put(deck, 's'); put(deck, 'c'); put(deck, 'h'); put(deck, 'a'); put(st, 'a');
     for (let k = 0; k < 4; k++) { put(any(), 'c'); put(any(), 's'); put(any(), 'b'); put(any(), 'h'); put(any(), 'a'); }
+    // the minigun lies in a room well away from the start
+    let mg = 0; for (let t = 0; t < 40 && !mg; t++) { const r = any(); if (abs(r.cx - st.cx) + abs(r.cz - st.cz) >= (t < 25 ? 12 : 0)) mg = put(r, 'm'); }
+    if (!mg) continue;
     // accept only if every walkable cell is reachable and the ship is about as large as the hand-made one
     const seen = new Uint8Array(MW * MH), q = [st.cz * MW + st.cx]; seen[q[0]] = 1; let open = 0, got = 1;
     for (let z = 0; z < MH; z++) for (let x = 0; x < MW; x++) if (!'#wPXCTRB'.includes(g[z][x])) open++;

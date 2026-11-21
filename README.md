@@ -4,7 +4,7 @@ A first-person shooter set on a dark alien-infested spaceship. Kill every alien 
 
 The whole game is one self-contained `index.html` (about 100 KB minified). It is rendered with WebGPU, uses no engine or library, and loads no external files: geometry, materials, sky, sounds and music are all generated in code.
 
-Version 1.2 · © 2026 masodj@centrum.cz
+Version 1.3 · © 2026 masodj@centrum.cz
 
 ## Play
 
@@ -17,8 +17,8 @@ Open `index.html` in a browser with WebGPU (recent Chrome or Edge), pick a diffi
 | `Shift` | Sprint |
 | Left mouse button | Fire |
 | `R` | Reload |
-| `1` / `2` | Shotgun / minigun |
-| `Q` or mouse wheel | Swap weapon |
+| `1` / `2` | Shotgun / minigun (once found) |
+| `Q` or mouse wheel | Swap weapon (once the minigun is found) |
 | `M` | Music on/off |
 | `Esc` | Pause |
 
@@ -26,8 +26,8 @@ Open `index.html` in a browser with WebGPU (recent Chrome or Edge), pick a diffi
 
 **Weapons**
 
-- **Shotgun** — 8 shells, ten pellets per shot, slow but lethal up close.
-- **Minigun** — 150 rounds, spins up before firing, 18 rounds per second.
+- **Shotgun** — 8 shells, ten pellets per shot, slow but lethal up close. You board with it and 32 spare shells.
+- **Minigun** — 150 rounds, spins up before firing, 18 rounds per second. You do not start with it: it lies somewhere aboard, in a room away from the start, as a turning model of the gun over a violet ring. Picking it up gives a full drum and 300 spare rounds.
 
 **Aliens**
 
@@ -35,7 +35,7 @@ Open `index.html` in a browser with WebGPU (recent Chrome or Edge), pick a diffi
 - **Spitter** — floating polyp that lobs plasma from a distance.
 - **Brute** — slow armoured biped with a lot of health and a heavy melee hit.
 
-Dead aliens stay where they fall.
+Dead aliens stay where they fall. When only three are left alive, they stop waiting and hunt you down wherever you are.
 
 **Difficulty**
 
@@ -61,7 +61,7 @@ Ammo crates are the same on every difficulty. The choice is remembered between r
 
 - The layout is different on every run: rooms, corridors, props, aliens and crates are generated from a random seed. Only the north observation deck is always there.
 - Corridors, halls, a reactor room, infested nests and an observation deck with a planet and stars outside.
-- Green crates restore health (see the table); orange crates give 12 shells and 150 minigun rounds.
+- Green crates restore health (see the table); orange crates give 12 shells and 150 minigun rounds (the rounds are kept for when you find the gun).
 - Red barrels with a glowing band explode when shot. The blast hurts everything within 7 m, including you, and can set off other barrels.
 - Shots leave marks on walls, floors and ceilings.
 
