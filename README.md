@@ -4,7 +4,7 @@ A first-person shooter set on a dark alien-infested spaceship. Kill every alien 
 
 The whole game is one self-contained `index.html` (about 100 KB minified). It is rendered with WebGPU, uses no engine or library, and loads no external files: geometry, materials, sky, sounds and music are all generated in code.
 
-Version 1.3 · © 2026 masodj@centrum.cz
+Version 1.4 · © 2026 masodj@centrum.cz
 
 ## Play
 

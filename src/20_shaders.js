@@ -10,6 +10,7 @@ return mix(mix(mix(h31(i),h31(i+vec3f(1.,0.,0.)),u.x),mix(h31(i+vec3f(0.,1.,0.))
 fn fbm3(p:vec3f)->f32{return .5*n3(p)+.25*n3(p*2.03+7.1)+.125*n3(p*4.01+3.3)+.0625*n3(p*8.07+1.7);}
 `;
 const WG_FS = /*wgsl*/`
+fn fin(c:vec3f)->vec3f{let b=(bitcast<vec3u>(c)&vec3u(0x7f800000u))==vec3u(0x7f800000u);return select(clamp(c,vec3f(0.),vec3f(16384.)),vec3f(0.),b.x||b.y||b.z);}
 @vertex fn vs(@builtin(vertex_index)i:u32)->@builtin(position)vec4f{return vec4f(f32(i&1u)*4.-1.,f32(i>>1u)*4.-1.,0.,1.);}
 `;
 
@@ -110,7 +111,7 @@ struct FOut{@location(0)alb:vec4f,@location(1)nr:vec4f,@location(2)em:vec4f,@loc
     let stripe=lnf(abs(uv.y-1.42),.05,fw);
     alb=mix(alb,vec3f(.75,.42,.08),stripe*.8*step(.55,th));
     alb=mix(alb,vec3f(.62,.64,.68),P.z);
-    let gri=smoothstep(1.3,0.,uv.y)*(.35+.4*nm);alb*=1.-gri*.6;
+    let gri=(1.-smoothstep(0.,1.3,uv.y))*(.35+.4*nm);alb*=1.-gri*.6;
     
     ro=clamp(.4+.25*nl+.2*gri-.1*th,.25,.85);me=.55;
     let wt2=vec2f(uv.x*.5,(uv.y-.25)/1.25);let wid=floor(wt2);let wf=fract(wt2);let wc0=vec2f(min(wf.x,1.-wf.x)*2.,min(wf.y,1.-wf.y)*1.25);let dh=h21(wid+7.3);let dfade=clamp(1.-fw*25.,0.,1.);
@@ -139,7 +140,7 @@ struct FOut{@location(0)alb:vec4f,@location(1)nr:vec4f,@location(2)em:vec4f,@loc
       alb=mix(alb,vec3f(.6,.62,.65),on*.7*dfade);
     }
     if(dh<.12&&wid.y<.5){let q=(wf-vec2f(.5,.55))*vec2f(2.,1.25);let tri=max(abs(q.x)*1.73+q.y,-q.y)-.14;let trm=clamp(-tri/max(fw,.002)+.5,0.,1.);let tin=clamp((-tri-.035)/max(fw,.002)+.5,0.,1.);alb=mix(alb,mix(vec3f(.02),vec3f(.8,.55,.05),tin),trm*.85*dfade);}
-    let wc2=vec2f(min(wf.x,1.-wf.x)*2.,min(wf.y,1.-wf.y)*1.25);let ew=smoothstep(.05,.012,min(wc2.x,wc2.y))*smoothstep(.35,.7,n2(uv*9.)+.3*nm)*clamp(1.-fw*30.,0.,1.);alb=mix(alb,vec3f(.42,.44,.47),ew*.45);ro=mix(ro,.3,ew*.5);
+    let wc2=vec2f(min(wf.x,1.-wf.x)*2.,min(wf.y,1.-wf.y)*1.25);let ew=(1.-smoothstep(.012,.05,min(wc2.x,wc2.y)))*smoothstep(.35,.7,n2(uv*9.)+.3*nm)*clamp(1.-fw*30.,0.,1.);alb=mix(alb,vec3f(.42,.44,.47),ew*.45);ro=mix(ro,.3,ew*.5);
   }else if(m==3u){
     alb=vec3f(.1,.105,.115)*(.7+.6*P.w)*(1.-.6*P.y);ro=.62;me=.6;
   }else if(m==4u){
@@ -177,7 +178,7 @@ struct FOut{@location(0)alb:vec4f,@location(1)nr:vec4f,@location(2)em:vec4f,@loc
     var sy=0.;
     if(hl){sy=max(step(q.x,.06)*step(q.y,.19),step(q.y,.06)*step(q.x,.19));}
     else{let bx=abs(abs(uv.x)-.11);sy=(step(bx,.035)+step(q.x,.035))*step(-.17,uv.y)*step(uv.y,.06+.09*(1.-smoothstep(0.,.035,min(bx,q.x))));}
-    em=kc*sy*(6.+2.5*sin(t*4.))+kc*smoothstep(.02,0.,abs(bd-.045))*3.;
+    em=kc*sy*(6.+2.5*sin(t*4.))+kc*(1.-smoothstep(0.,.02,abs(bd-.045)))*3.;
     alb=mix(alb,vec3f(0.),sy);
   }else if(m==12u){
     let chip=smoothstep(.68,.8,n2(uv*17.)*.5+n2(uv*4.)*.35+nl*.25)*clamp(1.-fw*14.,0.,1.);
@@ -194,7 +195,7 @@ struct FOut{@location(0)alb:vec4f,@location(1)nr:vec4f,@location(2)em:vec4f,@loc
       em=c*vein*es*(.5+.5*sin(t*1.7+q.y*2.))*.5;
     }else if(m==14u){
       alb=c*(.55+.9*f);ro=.26+.3*f;me=.25;
-      let rim=pow(1.-max(dot(Ng,normalize(g.cam.xyz-i.wp)),0.),3.);
+      let rim=pow(1.-clamp(dot(Ng,normalize(g.cam.xyz-i.wp)),0.,1.),3.);
       em=i.glow.rgb*(vein*(.55+.45*sin(t*5.+q.y*3.))*es+rim*.085)+vec3f(4.,3.,2.5)*i.glow.a;
     }else{
       let fl=fbm3(vec3f(i.lp.x*2.,i.lp.y*1.2-t*1.6,i.lp.z*2.));
@@ -204,7 +205,7 @@ struct FOut{@location(0)alb:vec4f,@location(1)nr:vec4f,@location(2)em:vec4f,@loc
     let w3=n3(i.lp*900.);let wear=smoothstep(.3,.9,n3(i.lp*60.))*.12;let mg=lnf(abs(fract(i.lp.z*55.)-.5)/55.,.00035,max(fw,.0002))*(1.-i.glow.x);
     let rb=i.glow.x*(.5+.5*sin(dot(i.lp,vec3f(0.,0.,1.))*900.));
     alb=mix(c*(.94+.12*w3),vec3f(.42,.43,.45),wear*(1.-i.glow.x))*(1.-.5*rb)*(1.-.6*mg);ro=mix(.45,.3,wear)+.25*i.glow.x;me=mix(.9,.15,i.glow.x);
-    em=(alb*.05+vec3f(.035,.05,.065)*pow(1.-max(dot(Ng,normalize(g.cam.xyz-i.wp)),0.),2.))*.6;
+    em=(alb*.05+vec3f(.035,.05,.065)*pow(1.-clamp(dot(Ng,normalize(g.cam.xyz-i.wp)),0.,1.),2.))*.6;
   }
   // screen-space bump for organic materials
   let dhx=dpdx(hv);let dhy=dpdy(hv);
@@ -247,9 +248,9 @@ fn shadow(p:vec2f,l:vec2f,sr:f32)->f32{
   return res*res*(3.-2.*res);
 }
 fn brdf(N:vec3f,V:vec3f,L:vec3f,dif:vec3f,F0:vec3f,ro:f32)->vec3f{
-  let H=normalize(V+L);let nl=max(dot(N,L),0.);let nv=max(dot(N,V),1e-3);let nh=max(dot(N,H),0.);let vh=max(dot(V,H),0.);
-  let a=ro*ro;let a2=a*a;let dd=nh*nh*(a2-1.)+1.;let D=a2/(3.14159*dd*dd);
-  let k=a*.5;let vis=.25/((nv*(1.-k)+k)*(nl*(1.-k)+k));
+  let H=normalize(V+L);let nl=max(dot(N,L),0.);let nv=max(dot(N,V),1e-3);let nh=clamp(dot(N,H),0.,1.);let vh=clamp(dot(V,H),0.,1.);
+  let a=ro*ro;let a2=a*a;let dd=nh*nh*(a2-1.)+1.;let D=a2/max(3.14159*dd*dd,1e-7);
+  let k=a*.5;let vis=.25/max((nv*(1.-k)+k)*(nl*(1.-k)+k),1e-5);
   let F=F0+(1.-F0)*pow(1.-vh,5.);
   return (dif*.3183+min(D*vis,30.)*F)*nl;
 }
@@ -275,9 +276,9 @@ fn sky(d:vec3f)->vec3f{
     let s=select(170.,90.,l==0);let p=d*s;let id=floor(p);let h=h31(id);
     if(h>.93){
       let o=(vec3f(h31(id+11.3),h31(id+27.1),h31(id+5.7))-.5)*.5;
-      let b=pow((h-.93)*14.28,4.);let dist=length(p-id-.5-o)/s;let rs=max(pa*1.3,.0007)*(1.+1.4*b);let e=min(1.,.0007*.0007/(rs*rs))*4.;
+      let b=pow(max((h-.93)*14.28,0.),4.);let dist=length(p-id-.5-o)/s;let rs=max(pa*1.3,.0007)*(1.+1.4*b);let e=min(1.,.0007*.0007/(rs*rs))*4.;
       let tint=mix(vec3f(1.,.75,.55),vec3f(.65,.8,1.),h31(id+3.1));
-      col+=tint*e*(.1+5.*b)*pow(smoothstep(rs,0.,dist),1.5);
+      col+=tint*e*(.1+5.*b)*pow((1.-smoothstep(0.,rs,dist)),1.5);
     }
   }
   let nb=fbm3(d*2.2+vec3f(3.1,1.7,9.2));let nb2=fbm3(d*3.7+vec3f(11.,4.,2.));
@@ -296,7 +297,7 @@ fn sky(d:vec3f)->vec3f{
     let f=fbm3(q*vec3f(1.,3.2,1.))*.8+fbm3(q*9.)*.2;let f2=fbm3(q*2.5+8.)*.7+fbm3(q*11.+3.)*.3;
     var pcol=mix(vec3f(.05,.16,.3),vec3f(.5,.36,.25),smoothstep(.42,.6,f));
     pcol=mix(pcol,vec3f(.8,.83,.88),smoothstep(.53,.68,f2)*.75);
-    let rim=pow(1.-max(dot(n,-d),0.),4.)*1.8;
+    let rim=pow(1.-clamp(dot(n,-d),0.,1.),4.)*1.8;
     let aa=smoothstep(0.,pa*2.+.004,rp-ang);
     let pl=pcol*lit*1.35+pcol*.008+vec3f(.25,.5,1.)*rim*(lit*1.6+.1);
     col=mix(col,pl,aa);
@@ -320,7 +321,7 @@ fn sky(d:vec3f)->vec3f{
       let a=(f32(i)+nz)*2.399963;let r=sqrt((f32(i)+.5)/6.)*rpx;
       let q=clamp(px+vec2i(vec2f(cos(a),sin(a))*r),vec2i(0),vec2i(g.res.xy)-1);
       let v=posAt(q)-P;let vv=dot(v,v);
-      occ+=max(dot(v,N)-.02-.01*ld,0.)/(vv+.03)*smoothstep(1.2,.3,vv);
+      occ+=max(dot(v,N)-.02-.01*ld,0.)/(vv+.03)*(1.-smoothstep(.3,1.2,vv));
     }
     let ao=pow(clamp(1.-occ*.2,0.,1.),1.5);
     // lights
@@ -376,7 +377,7 @@ fn sky(d:vec3f)->vec3f{
         refl=mix(refl,hs/(1.+max(hs.r,max(hs.g,hs.b))*mix(.12,1.,smoothstep(.15,.5,ro))),w);
       }
     }
-    let nv=max(dot(N,V),0.);
+    let nv=clamp(dot(N,V),0.,1.);
     col+=refl*(F0+(max(vec3f(1.-ro),F0)-F0)*pow(1.-nv,5.))*mix(1.,ao,.7);
   }
   // analytic in-scattering from nearby lights
@@ -396,7 +397,7 @@ fn sky(d:vec3f)->vec3f{
     let ct=max(dot(dir,g.sun.xyz),0.);
     col+=SUNC*(g.sun.w*acc*dt*.00016*(.5+3.*pow(ct,5.)));
   }
-  return vec4f(col,1.);
+  return vec4f(fin(col),1.);
 }
 `;
 
@@ -431,7 +432,7 @@ fn yc(c:vec3f)->vec3f{return vec3f(.25*c.r+.5*c.g+.25*c.b,.5*c.r-.5*c.b,-.25*c.r
 fn rgb(c:vec3f)->vec3f{return vec3f(c.x+c.y-c.z,c.x+c.z,c.x-c.y-c.z);}
 fn tm(c:vec3f)->vec3f{return c/(1.+max(c.r,max(c.g,c.b)));}
 fn itm(c:vec3f)->vec3f{return c/max(1.-max(c.r,max(c.g,c.b)),1e-4);}
-fn S(u:vec2f)->vec3f{return tm(textureSampleLevel(tH,smp,u,0.).rgb);}
+fn S(u:vec2f)->vec3f{return tm(fin(textureSampleLevel(tH,smp,u,0.).rgb));}
 fn hist(uv:vec2f)->vec3f{
   let p=uv*g.res.xy;let c=floor(p-.5)+.5;let f=p-c;
   let w0=f*(-.5+f*(1.-.5*f));let w1=1.+f*f*(-2.5+1.5*f);let w2=f*(.5+f*(2.-1.5*f));let w3=f*f*(-.5+.5*f);
@@ -450,10 +451,10 @@ fn hist(uv:vec2f)->vec3f{
     let pc=g.pvp*vec4f(g.cam.xyz+(g.fwd.xyz+g.right.xyz*n.x+g.up.xyz*n.y)*2000.,1.);
     vel=(n-pc.xy/pc.w)*vec2f(.5,-.5);
   }
-  let cur=tm(textureLoad(tC,px,0).rgb);
+  let cur=tm(fin(textureLoad(tC,px,0).rgb));
   var m1=vec3f(0.);var m2=vec3f(0.);var mn=vec3f(1e9);var mxc=vec3f(-1e9);
   for(var y=-1;y<=1;y++){for(var x=-1;x<=1;x++){
-    let c=yc(tm(textureLoad(tC,clamp(px+vec2i(x,y),vec2i(0),mx),0).rgb));m1+=c;m2+=c*c;mn=min(mn,c);mxc=max(mxc,c);
+    let c=yc(tm(fin(textureLoad(tC,clamp(px+vec2i(x,y),vec2i(0),mx),0).rgb)));m1+=c;m2+=c*c;mn=min(mn,c);mxc=max(mxc,c);
   }}
   m1/=9.;let sg=sqrt(max(m2/9.-m1*m1,vec3f(0.)));
   let lo=max(mn,m1-sg*1.5);let hi=min(mxc,m1+sg*1.5);
@@ -465,7 +466,7 @@ fn hist(uv:vec2f)->vec3f{
   let ok=hu.x>0.&&hu.x<1.&&hu.y>0.&&hu.y<1.&&g.misc.z<.5;
   let sp=length(vel*g.res.xy);
   let al=select(1.,mix(.06,.2,clamp(sp*.05,0.,1.)),ok);
-  return vec4f(itm(mix(rgb(h),cur,al)),1.);
+  return vec4f(fin(itm(mix(rgb(h),cur,al))),1.);
 }
 `;
 
@@ -473,7 +474,7 @@ fn hist(uv:vec2f)->vec3f{
 const WG_BLOOM = WG_FS + /*wgsl*/`
 @group(0)@binding(0)var tC:texture_2d<f32>;
 @group(0)@binding(1)var smp:sampler;
-fn T(u:vec2f)->vec3f{return textureSampleLevel(tC,smp,u,0.).rgb;}
+fn T(u:vec2f)->vec3f{return fin(textureSampleLevel(tC,smp,u,0.).rgb);}
 fn kw(c:vec3f)->f32{return 1./(1.+max(c.r,max(c.g,c.b)));}
 fn down(fc:vec4f,karis:bool)->vec4f{
   let ts=1./vec2f(textureDimensions(tC));let u=fc.xy*2.*ts;
@@ -528,10 +529,10 @@ fn ink(d:f32)->f32{return clamp(.5-d,0.,1.)+exp(-max(d,0.)*.3)*.12;}
 fn plate(p:vec2f,b:vec2f)->vec2f{let d=sdb(p,b-9.)-9.;return vec2f(clamp(.5-d,0.,1.),clamp(1.-abs(d+1.),0.,1.));}
 @fragment fn fs(@builtin(position)fc:vec4f)->@location(0)vec4f{
   let px=vec2i(fc.xy);let uv=fc.xy*g.res.zw;let mx=vec2i(g.res.xy)-1;
-  let c0=textureLoad(tC,px,0).rgb;
-  let nb=(textureLoad(tC,clamp(px+vec2i(1,0),vec2i(0),mx),0).rgb+textureLoad(tC,clamp(px-vec2i(1,0),vec2i(0),mx),0).rgb+textureLoad(tC,clamp(px+vec2i(0,1),vec2i(0),mx),0).rgb+textureLoad(tC,clamp(px-vec2i(0,1),vec2i(0),mx),0).rgb)*.25;
+  let c0=fin(textureLoad(tC,px,0).rgb);
+  let nb=fin(textureLoad(tC,clamp(px+vec2i(1,0),vec2i(0),mx),0).rgb+textureLoad(tC,clamp(px-vec2i(1,0),vec2i(0),mx),0).rgb+textureLoad(tC,clamp(px+vec2i(0,1),vec2i(0),mx),0).rgb+textureLoad(tC,clamp(px-vec2i(0,1),vec2i(0),mx),0).rgb)*.25;
   var col=max(c0+(c0-nb)*.22/(1.+max(c0.g,nb.g)*2.),vec3f(0.));
-  col=mix(col,textureSampleLevel(tB,smp,uv,0.).rgb,.065);
+  col=mix(col,fin(textureSampleLevel(tB,smp,uv,0.).rgb),.065);
   col*=g.prj.w;
   let q=uv-.5;col*=1.-dot(q,q)*.55;
   // filmic curve (ACES fit) with a cool shadow grade
@@ -595,7 +596,7 @@ fn plate(p:vec2f,b:vec2f)->vec2f{let d=sdb(p,b-9.)-9.;return vec2f(clamp(.5-d,0.
   col+=vec3f(.2,.6,.3)*g.hud1.z*dot(q,q)*.9;
   if(st>.5&&st<1.5){let lm=dot(col,vec3f(.33));col=mix(col,vec3f(lm*.9,lm*.12,lm*.08),.8);}
   // sRGB encode + dither against banding
-  col=mix(col*12.92,1.055*pow(col,vec3f(1./2.4))-.055,step(vec3f(.0031308),col));
+  col=mix(col*12.92,1.055*pow(max(col,vec3f(0.)),vec3f(1./2.4))-.055,step(vec3f(.0031308),col));
   let n=fract(52.9829189*fract(dot(fc.xy+g.up.w*vec2f(5.588,3.17),vec2f(.06711056,.00583715))));
   let n2=fract(52.9829189*fract(dot(fc.yx+g.up.w*vec2f(2.71,7.3)+31.,vec2f(.06711056,.00583715))));
   return vec4f(col+(n+n2-1.)/255.,1.);
